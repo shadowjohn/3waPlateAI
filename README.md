@@ -17,7 +17,31 @@ M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC tr
 
 ## Quick start
 
-CPython 3.11 on Linux is the supported M1 runtime.
+CPython 3.11 is the supported development and CI runtime.
+
+### Windows one-command build
+
+From PowerShell, run:
+
+```powershell
+.\build.ps1
+```
+
+`build.ps1` creates the ignored `.venv` with CPython 3.11 (using `uv` when it
+is available, otherwise the `py -3.11` launcher), installs the exact locked
+training/test dependencies, runs the complete test suite, builds `dist/`,
+force-installs the newly built wheel, runs the three-image installed-package
+smoke generation, and finishes with `pip check`. `build.bat` is a cmd/double-
+click wrapper for the same command.
+
+Useful variants are `.\build.ps1 -BootstrapOnly` to create/update the local
+environment only, `.\build.ps1 -SkipTests`, `.\build.ps1 -SkipPackage`, and
+`.\build.ps1 -RecreateVenv` when the existing `.venv` is not CPython 3.11.
+`-RecreateVenv` removes only the ignored `.venv`; source, datasets, model
+artifacts, and other output paths are untouched. The build produces Python
+package artifacts only; it never trains, downloads, or publishes model files.
+
+### Manual setup
 
 ```bash
 python3.11 -m venv .venv
