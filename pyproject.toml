@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 plateai-generate = "plateai_trainer.synthetic.cli:main"
 plateai-train = "plateai_trainer.training.cli:main"
+plateai-export = "plateai_trainer.export.cli:main"
 
 [project.optional-dependencies]
 test = [
