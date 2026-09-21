@@ -115,16 +115,15 @@ def default_request(tmp_path):
     )
 
 
-@pytest.fixture
-def v1_dataset(tmp_path):
+def _generate_v1_dataset(tmp_path, name: str, *, count: int, seed: int):
     from plateai_trainer.synthetic.dataset import generate_dataset
     from plateai_trainer.synthetic.models import GenerationRequest
 
-    output = tmp_path / "v1-dataset"
+    output = tmp_path / name
     generate_dataset(
         GenerationRequest(
-            count=1,
-            seed=42,
+            count=count,
+            seed=seed,
             output=output,
             charset_path=V1_CHARSET,
             rules_path=V1_RULES,
@@ -133,6 +132,21 @@ def v1_dataset(tmp_path):
         )
     )
     return output
+
+
+@pytest.fixture
+def v1_dataset(tmp_path):
+    return _generate_v1_dataset(tmp_path, "v1-dataset", count=1, seed=42)
+
+
+@pytest.fixture
+def v1_train_dir(tmp_path):
+    return _generate_v1_dataset(tmp_path, "v1-train", count=4, seed=101)
+
+
+@pytest.fixture
+def v1_validation_dir(tmp_path):
+    return _generate_v1_dataset(tmp_path, "v1-validation", count=4, seed=202)
 
 
 @pytest.fixture
