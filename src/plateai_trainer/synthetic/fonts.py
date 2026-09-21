@@ -11,19 +11,26 @@ from .models import FontSpec
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _INSTALL_DATA_ROOT = Path(sysconfig.get_path("data")) / "share" / "3wa-plate-ai"
 _DEFAULT_FONT_NAME = "NotoSansMono[wdth,wght].ttf"
+_TAIWAN_PLATE_FONT_NAME = "TaiwanPlate-Regular.ttf"
 _DEFAULT_VARIATION_AXES = (700, 62)
 
 
-def _default_font_path() -> Path:
-    checkout_path = _REPOSITORY_ROOT / "assets" / "fonts" / _DEFAULT_FONT_NAME
+def _bundled_font_path(name: str) -> Path:
+    """Find a packaged font in either a checkout or an installed wheel."""
+
+    checkout_path = _REPOSITORY_ROOT / "assets" / "fonts" / name
     if checkout_path.is_file():
         return checkout_path.resolve()
-    installed_path = _INSTALL_DATA_ROOT / "fonts" / _DEFAULT_FONT_NAME
+    installed_path = _INSTALL_DATA_ROOT / "fonts" / name
     if installed_path.is_file():
         return installed_path.resolve()
     raise FileNotFoundError(
-        "bundled default font is missing; install the package with its data files"
+        f"bundled font is missing: {name}; install the package with its data files"
     )
+
+
+def _default_font_path() -> Path:
+    return _bundled_font_path(_DEFAULT_FONT_NAME)
 
 
 def resolve_font(value: str | Path | None) -> FontSpec:
@@ -38,16 +45,23 @@ def resolve_font(value: str | Path | None) -> FontSpec:
             variation_axes=_DEFAULT_VARIATION_AXES,
         )
 
-    if value in {"taiwan_plate", "official", "TaiwanPlate-Regular.ttf"}:
-        official_path = _REPOSITORY_ROOT / "assets" / "fonts" / "TaiwanPlate-Regular.ttf"
-        if official_path.is_file():
-            return FontSpec(kind="truetype", name=official_path.name, path=official_path.resolve())
+    if str(value) in {"taiwan_plate", "official", _TAIWAN_PLATE_FONT_NAME}:
+        path = _bundled_font_path(_TAIWAN_PLATE_FONT_NAME)
+        return FontSpec(kind="truetype", name=path.name, path=path)
 
     path = Path(value)
     if not path.exists():
-        bundled_candidate = _REPOSITORY_ROOT / "assets" / "fonts" / value
-        if bundled_candidate.is_file():
-            return FontSpec(kind="truetype", name=bundled_candidate.name, path=bundled_candidate.resolve())
+        if path.parent == Path("."):
+            try:
+                bundled_candidate = _bundled_font_path(path.name)
+            except FileNotFoundError:
+                bundled_candidate = None
+            if bundled_candidate is not None:
+                return FontSpec(
+                    kind="truetype",
+                    name=bundled_candidate.name,
+                    path=bundled_candidate,
+                )
         raise FileNotFoundError(f"font file does not exist: {path}")
     if not path.is_file():
         raise ValueError(f"font path is not a regular file: {path}")

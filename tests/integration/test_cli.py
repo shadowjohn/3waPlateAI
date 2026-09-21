@@ -59,6 +59,27 @@ def test_default_cli_profile_generates_new_style_private_passenger_crops(tmp_pat
     assert configuration["font_sha256"] == "2cb2adb378a8f574213e23df697050b83c54c27df465a2015552740b2769a081"
 
 
+def test_cli_accepts_bundled_taiwan_plate_font_alias(tmp_path):
+    output = tmp_path / "taiwan-plate"
+    result = run_cli(
+        "generate",
+        "--count",
+        "1",
+        "--seed",
+        "42",
+        "--font",
+        "taiwan_plate",
+        "--output",
+        str(output),
+    )
+    assert result.returncode == 0, result.stderr
+    configuration = json.loads((output / "generation_config.json").read_text(encoding="utf-8"))
+    record = json.loads((output / "metadata.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert configuration["font"] == "TaiwanPlate-Regular.ttf"
+    assert configuration["font_sha256"] == "4ac89c39eb57045d5466e711ece3c901b13ca6b7c338c7c55efef9079f745075"
+    assert record["renderer"]["font_name"] == "TaiwanPlate-Regular.ttf"
+
+
 def test_zero_count_returns_usage_error_without_output(tmp_path):
     output = tmp_path / "zero"
     result = run_cli("generate", "--count", "0", "--output", str(output))

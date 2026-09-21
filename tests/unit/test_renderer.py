@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -48,8 +50,12 @@ def test_template_rejects_out_of_bounds_text_box(
         load_template(path)
 
 
-def test_resolve_taiwan_plate_font(default_template):
-    font = resolve_font("taiwan_plate")
+@pytest.mark.parametrize(
+    "value",
+    ("taiwan_plate", Path("taiwan_plate"), "official", Path("official")),
+)
+def test_resolve_taiwan_plate_font(default_template, value):
+    font = resolve_font(value)
     assert font.kind == "truetype"
     assert font.name == "TaiwanPlate-Regular.ttf"
     assert font.path is not None
