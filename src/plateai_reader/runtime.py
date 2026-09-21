@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from plateai_shared.bundle import validate_model_bundle
 from plateai_shared.detection import PlateDetection, letterbox_rgb_v1
 from plateai_shared.recognition import CTCCodec, preprocess_v1_rgb
-from plateai_shared.rules import load_character_set, load_ruleset
+from plateai_shared.rules import format_display, load_character_set, load_ruleset
 
 from .detector import postprocess_candidates
 from .rectifier import InvalidCornersError, rectify_plate
@@ -118,14 +118,7 @@ def _default_session_factory(path: Path, providers: Sequence[str]) -> OrtSession
     return ort.InferenceSession(str(path), providers=list(providers))
 
 
-def _format_display(canonical: str, separator: str, separator_after: Sequence[int]) -> str:
-    pieces: list[str] = []
-    positions = set(separator_after)
-    for position, symbol in enumerate(canonical, start=1):
-        pieces.append(symbol)
-        if position in positions:
-            pieces.append(separator)
-    return "".join(pieces)
+_format_display = format_display
 
 
 def _log_softmax(logits: NDArray[np.float32]) -> NDArray[np.float64]:

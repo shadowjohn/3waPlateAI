@@ -75,11 +75,32 @@ python -m pytest
 
   此組輸出尺寸與類型可變，供視覺與後續多 profile 工作使用；不可直接餵給目前固定 380×160 小客車契約的 M2/M4 recognizer。
 
+- **全台統一 OCR 字串規則（Unified Standard Profile）**：
+  涵蓋全台車牌文字格式（新式七碼 `LLL-DDDD`、舊式六碼 `LL-DDDD` / `DDDD-LL`、機車六碼 `LLL-DDD`、機車混合碼 `LLD-DDD` / `DLL-DDD`，以及舊式五碼/四碼 `LL-DDD` / `DDD-LL` / `LL-DD` / `DD-LL`），並補齊包含數字 `4` 的 34 字元集（10 數字 + 24 字母，排除 `I`、`O`）。
+  > **注意**：`tw_standard_v1.json` 是「統一 OCR 字串規則」（plate_type 均為 standard，供模型學習全台合法號牌文字結構），不是用於辨識車牌底色或車種的視覺模板；若需要特定底色（如黃牌、紅牌、綠牌）之視覺渲染，請搭配色牌模板。
+
+  合成資料生成：
+  ```powershell
+  .\.venv\Scripts\plateai-generate generate `
+    --charset configs\charsets\tw_standard_v1.txt `
+    --rules configs\plate_rules\tw_standard_v1.json `
+    --font taiwan_plate `
+    --count 10000 `
+    --seed 42 `
+    --output out\train-std
+  ```
+
+  訓練 35 類（34 字元 + Blank）辨識模型與導出 ONNX Bundle：
+  ```powershell
+  .\.venv\Scripts\plateai-train --train out\train-std --validation out\val-std --output runs\std-cpu --charset configs\charsets\tw_standard_v1.txt --rules configs\plate_rules\tw_standard_v1.json --epochs 10
+  .\.venv\Scripts\plateai-export --checkpoint runs\std-cpu\best.pt --report runs\std-cpu\report.json --output models\bundles\tw-std-v1 --charset configs\charsets\tw_standard_v1.txt --rules configs\plate_rules\tw_standard_v1.json
+  ```
+
 `tests/fixtures/synthetic/` 下的四張 PNG 是演算法建立的玩具輸入，只用於驗證程式與契約，不含真實車輛或可識別的車牌資料，也不構成辨識準確度聲明。
 
 ## M2 本機辨識訓練
 
-選用的 `training` extra 提供符合 v1 裁切契約的本機 PyTorch CTC trainer 與 ONNX exporter。它使用 Pillow golden 灰階前處理、80 個 CTC timestep、blank index 0，並在發布被忽略的本機 Bundle 前檢查 PyTorch 與 ONNX parity。資料集、權重、ONNX、run 與 Bundle 均不提交；詳見[訓練與資料集指南](docs/training.md)。
+選用的 `training` extra 提供符合裁切契約的本機 PyTorch CTC trainer 與 ONNX exporter。它使用 Pillow golden 灰階前處理、80 個 CTC timestep、blank index 0，支援動態類別數（預設 34 類，統一規格為 35 類），並在發布被忽略的本機 Bundle 前檢查 PyTorch 與 ONNX parity。資料集、權重、ONNX、run 與 Bundle 均不提交；詳見[訓練與資料集指南](docs/training.md)。
 
 ## M3a 四角點校正
 

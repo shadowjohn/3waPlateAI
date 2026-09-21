@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import random
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, NoReturn
@@ -218,6 +219,34 @@ def load_ruleset(path: Path, charset: CharacterSet) -> PlateRuleset:
     )
 
 
+def format_display(
+    canonical: str, separator: str, separator_after: Sequence[int]
+) -> str:
+    """Format canonical characters with rule separators at configured positions."""
+    pieces: list[str] = []
+    positions = set(separator_after)
+    for position, symbol in enumerate(canonical, start=1):
+        pieces.append(symbol)
+        if position in positions:
+            pieces.append(separator)
+    return "".join(pieces)
+
+
+def matches_rule(
+    canonical: str, rule: PlateRule, character_classes: Mapping[str, str]
+) -> bool:
+    """Check if a canonical string strictly matches one plate rule."""
+    if len(canonical) != len(rule.tokens):
+        return False
+    for symbol, token in zip(canonical, rule.tokens, strict=True):
+        if token.kind == "literal":
+            if symbol != token.value:
+                return False
+        elif symbol not in character_classes[token.value]:
+            return False
+    return True
+
+
 def generate_plate(ruleset: PlateRuleset, rng: random.Random) -> GeneratedPlate:
     """Sample one plate without reading global random state."""
 
@@ -230,14 +259,9 @@ def generate_plate(ruleset: PlateRuleset, rng: random.Random) -> GeneratedPlate:
         else:
             chars.append(rng.choice(ruleset.character_classes[token.value]))
     canonical = "".join(chars)
-    pieces: list[str] = []
-    for index, char in enumerate(canonical, start=1):
-        pieces.append(char)
-        if index in rule.separator_after:
-            pieces.append(rule.separator)
     return GeneratedPlate(
         canonical=canonical,
-        display="".join(pieces),
+        display=format_display(canonical, rule.separator, rule.separator_after),
         rule_id=rule.id,
         plate_type=rule.plate_type,
     )

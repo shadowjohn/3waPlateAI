@@ -14,7 +14,12 @@ from numpy.typing import NDArray
 from PIL import Image
 
 from plateai_shared.recognition import CTCCodec, preprocess_v1_rgb
-from plateai_shared.rules import load_character_set, load_ruleset
+from plateai_shared.rules import (
+    format_display,
+    load_character_set,
+    load_ruleset,
+    matches_rule,
+)
 
 
 _EXPECTED_SIZE = (380, 160)
@@ -91,7 +96,8 @@ class M1CropDataset:
             ruleset = load_ruleset(Path(rules_path), charset)
         except ValueError as exc:
             raise TrainingDataError(f"invalid requested rules: {rules_path}") from exc
-        self._allowed_plate_types = frozenset(rule.plate_type for rule in ruleset.rules)
+        self._ruleset = ruleset
+        self._rules_by_id = {rule.id: rule for rule in ruleset.rules if rule.enabled}
         charset_hash = charset.sha256
         rules_hash = _sha256_file(Path(rules_path))
 
@@ -180,8 +186,17 @@ class M1CropDataset:
             metadata = metadata_by_path[raw_path]
             if metadata.get("canonical") != canonical:
                 raise TrainingDataError(f"metadata.jsonl:{raw_path}: canonical text does not match")
-            if metadata.get("plate_type") not in self._allowed_plate_types:
+            rule_id = metadata.get("rule_id")
+            if not isinstance(rule_id, str) or rule_id not in self._rules_by_id:
+                raise TrainingDataError(f"metadata.jsonl:{raw_path}: unknown or disabled rule_id {rule_id!r}")
+            rule = self._rules_by_id[rule_id]
+            if metadata.get("plate_type") != rule.plate_type:
                 raise TrainingDataError(f"metadata.jsonl:{raw_path}: incompatible plate_type")
+            if not matches_rule(canonical, rule, self._ruleset.character_classes):
+                raise TrainingDataError(f"metadata.jsonl:{raw_path}: canonical does not match rule {rule_id!r}")
+            expected_display = format_display(canonical, rule.separator, rule.separator_after)
+            if metadata.get("display") != expected_display:
+                raise TrainingDataError(f"metadata.jsonl:{raw_path}: display does not match rule {rule_id!r}")
             if metadata.get("image_sha256") != _sha256_file(image_path):
                 raise TrainingDataError(f"metadata.jsonl:{raw_path}: PNG SHA-256 does not match")
             try:

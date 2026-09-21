@@ -41,15 +41,64 @@ def mutate_dataset(root, mutation):
         image_path.write_bytes(image_path.read_bytes() + b"changed")
     elif mutation == "wrong_plate_type":
         _replace_first_metadata(root, plate_type="motorcycle")
+    elif mutation == "illegal_canonical":
+        (root / "labels.txt").write_text("images/000000.png\tA1\n", encoding="utf-8")
+        _replace_first_metadata(root, canonical="A1", display="A-1")
+    elif mutation == "unknown_rule_id":
+        _replace_first_metadata(root, rule_id="nonexistent-rule")
+    elif mutation == "mismatched_display":
+        _replace_first_metadata(root, display="AAA8888")
     else:
         raise AssertionError(f"unknown mutation {mutation}")
 
 
-@pytest.mark.parametrize("mutation", ["wrong_image_size", "changed_png", "wrong_plate_type"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "wrong_image_size",
+        "changed_png",
+        "wrong_plate_type",
+        "illegal_canonical",
+        "unknown_rule_id",
+        "mismatched_display",
+    ],
+)
 def test_m1_v1_dataset_rejects_tampered_or_incompatible_inputs(v1_dataset, mutation):
     mutate_dataset(v1_dataset, mutation)
     with pytest.raises(TrainingDataError):
         M1CropDataset(v1_dataset, V1_CHARSET, V1_RULES)
+
+
+def test_m1_dataset_rejects_illegal_canonical_under_tw_standard(tmp_path):
+    from plateai_trainer.synthetic.dataset import generate_dataset
+    from plateai_trainer.synthetic.models import GenerationRequest
+    from tests.conftest import ROOT, V1_NONE_AUGMENTATION, V1_TEMPLATE
+
+    std_charset = ROOT / "configs/charsets/tw_standard_v1.txt"
+    std_rules = ROOT / "configs/plate_rules/tw_standard_v1.json"
+    output = tmp_path / "std_sample"
+
+    generate_dataset(
+        GenerationRequest(
+            count=1,
+            seed=42,
+            output=output,
+            charset_path=std_charset,
+            rules_path=std_rules,
+            template_path=V1_TEMPLATE,
+            augmentation_path=V1_NONE_AUGMENTATION,
+        )
+    )
+
+    # Valid dataset loads cleanly
+    ds = M1CropDataset(output, std_charset, std_rules)
+    assert len(ds) == 1
+
+    # Tampering canonical to "A1" (not matching any rule) must fail
+    (output / "labels.txt").write_text("images/000000.png\tA1\n", encoding="utf-8")
+    _replace_first_metadata(output, canonical="A1")
+    with pytest.raises(TrainingDataError, match="canonical does not match rule"):
+        M1CropDataset(output, std_charset, std_rules)
 
 
 def test_repeat_heavy_synthetic_record_is_a_valid_12_step_ctc_target(v1_repeat_dataset):

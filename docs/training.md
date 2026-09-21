@@ -13,7 +13,19 @@ Install the isolated training stack, generate train/validation sets with differe
 .\.venv\Scripts\plateai-export --checkpoint runs\v1-cpu\best.pt --report runs\v1-cpu\report.json --output models\bundles\v1-local
 ```
 
-v1 has 33 visible symbols (`0,1,2,3,5,6,7,8,9,A-Z` without `I` or `O`), `blank_index = 0`, and 34 logits classes. The exact input is `[batch, 1, 64, 160]`: Pillow 12.3.0 `RGB.convert("L")`, bilinear resize to 64x152, raw-white four-pixel side letterbox, then `float32 / 255.0`.
+### Character sets and logit classes
+
+- **Legacy v1 baseline** (`configs/charsets/tw_new_style_private_passenger_v1.txt`): 33 visible symbols (`0-9` without `4`, `A-Z` without `I` or `O`), `blank_index = 0`, and 34 logits classes (`[batch, 80, 34]`).
+- **Unified Taiwan standard profile** (`configs/charsets/tw_standard_v1.txt` + `configs/plate_rules/tw_standard_v1.json`): 34 visible symbols (`0-9` including `4`, `A-Z` without `I` or `O`), `blank_index = 0`, and 35 logits classes (`[batch, 80, 35]`). This profile covers new-style 7-digit, legacy 6-digit (`LL-DDDD` / `DDDD-LL`), motorcycle 6-digit (`LLL-DDD` / `LLD-DDD` / `DLL-DDD`), and legacy 5/4-digit formats.
+
+Both `plateai-train` and `plateai-export` support `--charset <path>` and `--rules <path>` flags to train and package custom or unified models:
+
+```powershell
+.\.venv\Scripts\plateai-train --train out\std-train --validation out\std-val --output runs\std-cpu --charset configs\charsets\tw_standard_v1.txt --rules configs\plate_rules\tw_standard_v1.json --epochs 10
+.\.venv\Scripts\plateai-export --checkpoint runs\std-cpu\best.pt --report runs\std-cpu\report.json --output models\bundles\std-local --charset configs\charsets\tw_standard_v1.txt --rules configs\plate_rules\tw_standard_v1.json
+```
+
+The exact input is `[batch, 1, 64, 160]`: Pillow 12.3.0 `RGB.convert("L")`, bilinear resize to 64x152, raw-white four-pixel side letterbox, then `float32 / 255.0`.
 
 Export runs ONNX checker plus batch-one and batch-two native-versus-ONNX parity (logits and greedy CTC text) before it atomically publishes a hash-verified local bundle. Datasets, checkpoints, ONNX files, runs, and bundles are local, ignored, and not committed. Synthetic metrics are not field accuracy.
 
