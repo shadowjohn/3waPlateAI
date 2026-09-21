@@ -120,6 +120,23 @@ def test_numpy_nms_rejects_non_finite_and_non_positive_candidates():
     ) == [0]
 
 
+def test_postprocess_filters_candidate_whose_derived_bbox_is_non_finite():
+    overflow = _candidate(
+        3e38,
+        100.0,
+        3e38,
+        10.0,
+        0.90,
+        [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+    )
+
+    assert postprocess_candidates(
+        overflow.reshape(1, 13),
+        _odd_padding_transform(),
+        _default_postprocess(),
+    ) == []
+
+
 @pytest.mark.parametrize(
     ("score_threshold", "iou_threshold", "max_detections", "message"),
     (

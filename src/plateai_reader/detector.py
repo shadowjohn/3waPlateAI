@@ -97,8 +97,14 @@ def _eligible_candidate_indices(
         if np.isfinite(candidate).all()
         and candidate[2] > 0.0
         and candidate[3] > 0.0
+        and _candidate_has_finite_xyxy(candidate)
         and candidate[4] >= score_threshold
     ]
+
+
+def _candidate_has_finite_xyxy(candidate: NDArray[np.float32]) -> bool:
+    with np.errstate(over="ignore", invalid="ignore"):
+        return bool(np.isfinite(_candidate_xyxy(candidate)).all())
 
 
 def _xyxy_iou(left: NDArray[np.float32], right: NDArray[np.float32]) -> float:
