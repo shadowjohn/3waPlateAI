@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "3waPlateAI generation metadata record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "index", "sample_seed", "image_path", "canonical", "display", "rule_id", "plate_type", "corners", "renderer", "augmentation", "image_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "index": {"type": "integer", "minimum": 0},
+    "sample_seed": {"type": "integer", "minimum": 0},
+    "image_path": {"type": "string", "pattern": "^images/[0-9]{6,}\\.png$"},
+    "canonical": {"type": "string", "minLength": 1},
+    "display": {"type": "string", "minLength": 1},
+    "rule_id": {"type": "string", "minLength": 1},
+    "plate_type": {"type": "string", "minLength": 1},
+    "corners": {"$ref": "#/$defs/quad"},
+    "renderer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rendered_text", "font_kind", "font_name", "template_id"],
+      "properties": {
+        "rendered_text": {"type": "string", "minLength": 1},
+        "font_kind": {"enum": ["hershey", "truetype"]},
+        "font_name": {"type": "string", "minLength": 1},
+        "template_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "augmentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["augmentation_profile_id", "sample_seed", "geometry", "photometric"],
+      "properties": {
+        "augmentation_profile_id": {"type": "string", "minLength": 1},
+        "sample_seed": {"type": "integer", "minimum": 0},
+        "geometry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["perspective_applied", "rotation_applied", "rotation_degrees", "corner_offsets", "geometry_fallback"],
+          "properties": {
+            "perspective_applied": {"type": "boolean"},
+            "rotation_applied": {"type": "boolean"},
+            "rotation_degrees": {"type": "number"},
+            "corner_offsets": {"$ref": "#/$defs/quad"},
+            "geometry_fallback": {"type": "boolean"}
+          }
+        },
+        "photometric": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["brightness", "gamma", "noise", "motion_blur", "glare", "jpeg"],
+          "properties": {
+            "brightness": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["applied", "factor"],
+              "properties": {"applied": {"type": "boolean"}, "factor": {"type": "number"}}
+            },
+            "gamma": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["applied", "gamma"],
+              "properties": {"applied": {"type": "boolean"}, "gamma": {"type": "number"}}
+            },
+            "noise": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["applied", "sigma"],
+              "properties": {"applied": {"type": "boolean"}, "sigma": {"type": "number", "minimum": 0}}
+            },
+            "motion_blur": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["applied", "kernel_size"],
+              "properties": {"applied": {"type": "boolean"}, "kernel_size": {"type": "integer", "minimum": 1}}
+            },
+            "glare": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["applied", "opacity", "radius_ratio", "center"],
+              "properties": {
+                "applied": {"type": "boolean"},
+                "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                "radius_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+                "center": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}}
+              }
+            },
+            "jpeg": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["applied", "quality"],
+              "properties": {"applied": {"type": "boolean"}, "quality": {"type": "integer", "minimum": 1, "maximum": 100}}
+            }
+          }
+        }
+      }
+    },
+    "image_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+    "quad": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/point"}}
+  }
+}

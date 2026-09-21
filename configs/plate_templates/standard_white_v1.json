@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "standard-white-v1",
+  "width": 320,
+  "height": 96,
+  "background_rgb": [245, 245, 242],
+  "foreground_rgb": [18, 18, 18],
+  "border_rgb": [18, 18, 18],
+  "border_width": 2,
+  "corner_radius": 8,
+  "text_box": [18, 12, 302, 84]
+}

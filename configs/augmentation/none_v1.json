@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "none-v1",
+  "perspective_probability": 0.0,
+  "max_corner_jitter_ratio": 0.0,
+  "rotation_probability": 0.0,
+  "rotation_degrees": [0.0, 0.0],
+  "brightness_probability": 0.0,
+  "brightness_range": [1.0, 1.0],
+  "gamma_probability": 0.0,
+  "gamma_range": [1.0, 1.0],
+  "noise_probability": 0.0,
+  "noise_std_range": [0.0, 0.0],
+  "motion_blur_probability": 0.0,
+  "motion_blur_kernels": [1],
+  "glare_probability": 0.0,
+  "glare_opacity_range": [0.0, 0.0],
+  "glare_radius_ratio_range": [0.1, 0.1],
+  "jpeg_probability": 0.0,
+  "jpeg_quality_range": [95, 95]
+}

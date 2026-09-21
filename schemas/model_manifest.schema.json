@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "3waPlateAI Model Bundle manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_version", "model_id", "version", "created_at", "capabilities", "plate_size", "charset", "rules", "components", "decoder", "preprocess", "provenance"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "contract_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+    "model_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"},
+    "created_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["crop-recognition", "plate-detection"]},
+      "contains": {"const": "crop-recognition"}
+    },
+    "plate_size": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "charset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sha256", "visible_symbols"],
+      "properties": {
+        "file": {"$ref": "#/$defs/file_name"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "visible_symbols": {"type": "integer", "minimum": 1}
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sha256"],
+      "properties": {
+        "file": {"$ref": "#/$defs/file_name"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recognizer"],
+      "properties": {
+        "recognizer": {"$ref": "#/$defs/recognizer"},
+        "detector": {"$ref": "#/$defs/detector"}
+      }
+    },
+    "decoder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "blank_index", "class_count", "index_mapping", "collapse_repeats"],
+      "properties": {
+        "type": {"const": "ctc"},
+        "blank_index": {"type": "integer", "minimum": 0},
+        "class_count": {"type": "integer", "minimum": 2},
+        "index_mapping": {"const": "charset-order-skipping-blank"},
+        "collapse_repeats": {"const": true}
+      }
+    },
+    "preprocess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["color_order", "dtype", "scale"],
+      "properties": {
+        "color_order": {"enum": ["RGB", "BGR"]},
+        "dtype": {"enum": ["float32", "float16", "uint8"]},
+        "scale": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["training_data", "license_reviewed"],
+      "properties": {
+        "training_data": {"enum": ["synthetic", "mixed", "real"]},
+        "license_reviewed": {"type": "boolean"}
+      }
+    },
+    "rectifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalization_strategy"],
+      "properties": {
+        "normalization_strategy": {"const": "convex-hull-semantic-v1"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"capabilities": {"contains": {"const": "plate-detection"}}},
+        "required": ["capabilities"]
+      },
+      "then": {
+        "required": ["rectifier"],
+        "properties": {"components": {"required": ["detector"]}}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file_name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "tensor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "dtype", "shape"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+        "dtype": {"enum": ["float32", "float16", "uint8", "int32", "int64"]},
+        "shape": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {"type": "integer", "minimum": 1},
+              {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+            ]
+          }
+        }
+      }
+    },
+    "dynamic_batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "min", "opt", "max"],
+      "properties": {
+        "mode": {"const": "dynamic"},
+        "min": {"type": "integer", "minimum": 1},
+        "opt": {"type": "integer", "minimum": 1},
+        "max": {"type": "integer", "minimum": 1}
+      }
+    },
+    "fixed_batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "size", "padding", "discard_padded_outputs"],
+      "properties": {
+        "mode": {"const": "fixed"},
+        "size": {"type": "integer", "minimum": 1},
+        "padding": {"const": "neutral-image"},
+        "discard_padded_outputs": {"const": true}
+      }
+    },
+    "recognizer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "format", "sha256", "inputs", "outputs", "batch"],
+      "properties": {
+        "file": {"$ref": "#/$defs/file_name"},
+        "format": {"enum": ["onnx", "tensorrt"]},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "inputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/tensor"}},
+        "outputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/tensor"}},
+        "batch": {"oneOf": [{"$ref": "#/$defs/dynamic_batch"}, {"$ref": "#/$defs/fixed_batch"}]}
+      }
+    },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "format", "sha256", "inputs", "outputs", "keypoints"],
+      "properties": {
+        "file": {"$ref": "#/$defs/file_name"},
+        "format": {"enum": ["onnx", "tensorrt"]},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "inputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/tensor"}},
+        "outputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/tensor"}},
+        "keypoints": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "left_top"},
+            {"const": "right_top"},
+            {"const": "right_bottom"},
+            {"const": "left_bottom"}
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        }
+      }
+    }
+  }
+}

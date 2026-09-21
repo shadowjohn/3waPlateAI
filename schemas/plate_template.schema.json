@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "3waPlateAI plate template",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "width", "height", "background_rgb", "foreground_rgb", "border_rgb", "border_width", "corner_radius", "text_box"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "width": {"type": "integer", "minimum": 1},
+    "height": {"type": "integer", "minimum": 1},
+    "background_rgb": {"$ref": "#/$defs/rgb"},
+    "foreground_rgb": {"$ref": "#/$defs/rgb"},
+    "border_rgb": {"$ref": "#/$defs/rgb"},
+    "border_width": {"type": "integer", "minimum": 0},
+    "corner_radius": {"type": "integer", "minimum": 0},
+    "text_box": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"type": "integer", "minimum": 0}
+    }
+  },
+  "$defs": {
+    "rgb": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "integer", "minimum": 0, "maximum": 255}
+    }
+  }
+}

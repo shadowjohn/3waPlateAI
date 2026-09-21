@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=80,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "3wa-plate-ai"
+version = "0.1.0.dev0"
+description = "Taiwan license plate synthetic data, training, and high-speed reading tools"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = "MIT"
+dependencies = [
+  "numpy>=2.4.2,<2.5",
+  "opencv-python-headless>=5.0.0.93,<5.1",
+  "Pillow>=12.3.0,<13",
+  "jsonschema>=4.26.0,<5",
+]
+
+[project.scripts]
+plateai-generate = "plateai_trainer.synthetic.cli:main"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=9.1.1,<10",
+  "hypothesis>=6.168.0,<7",
+  "build>=1.2,<2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.data-files]
+"share/3wa-plate-ai/configs/charsets" = ["configs/charsets/*.txt"]
+"share/3wa-plate-ai/configs/plate_rules" = ["configs/plate_rules/*.json"]
+"share/3wa-plate-ai/configs/plate_templates" = ["configs/plate_templates/*.json"]
+"share/3wa-plate-ai/configs/augmentation" = ["configs/augmentation/*.json"]
+"share/3wa-plate-ai/schemas" = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

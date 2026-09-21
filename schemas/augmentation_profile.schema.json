@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "3waPlateAI augmentation profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "id", "perspective_probability", "max_corner_jitter_ratio",
+    "rotation_probability", "rotation_degrees", "brightness_probability", "brightness_range",
+    "gamma_probability", "gamma_range", "noise_probability", "noise_std_range",
+    "motion_blur_probability", "motion_blur_kernels", "glare_probability",
+    "glare_opacity_range", "glare_radius_ratio_range", "jpeg_probability", "jpeg_quality_range"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "perspective_probability": {"$ref": "#/$defs/probability"},
+    "max_corner_jitter_ratio": {"type": "number", "minimum": 0, "maximum": 0.2},
+    "rotation_probability": {"$ref": "#/$defs/probability"},
+    "rotation_degrees": {"$ref": "#/$defs/number_range"},
+    "brightness_probability": {"$ref": "#/$defs/probability"},
+    "brightness_range": {"$ref": "#/$defs/positive_range"},
+    "gamma_probability": {"$ref": "#/$defs/probability"},
+    "gamma_range": {"$ref": "#/$defs/positive_range"},
+    "noise_probability": {"$ref": "#/$defs/probability"},
+    "noise_std_range": {"$ref": "#/$defs/nonnegative_range"},
+    "motion_blur_probability": {"$ref": "#/$defs/probability"},
+    "motion_blur_kernels": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 1, "not": {"multipleOf": 2}}
+    },
+    "glare_probability": {"$ref": "#/$defs/probability"},
+    "glare_opacity_range": {"$ref": "#/$defs/unit_range"},
+    "glare_radius_ratio_range": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+    },
+    "jpeg_probability": {"$ref": "#/$defs/probability"},
+    "jpeg_quality_range": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "integer", "minimum": 1, "maximum": 100}
+    }
+  },
+  "$defs": {
+    "probability": {"type": "number", "minimum": 0, "maximum": 1},
+    "number_range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}},
+    "positive_range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "exclusiveMinimum": 0}},
+    "nonnegative_range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "minimum": 0}},
+    "unit_range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "minimum": 0, "maximum": 1}}
+  }
+}

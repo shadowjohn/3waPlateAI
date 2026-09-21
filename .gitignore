@@ -1,0 +1,34 @@
+.venv/
+.venv-verify/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+*.egg-info/
+build/
+dist/
+
+# Generated datasets and temporary output
+datasets/
+outputs/
+out/
+*.partial/
+
+# Models and accelerator artifacts are never release content
+*.ckpt
+*.onnx
+*.engine
+*.plan
+*.pt
+*.pth
+*.safetensors
+*.trt
+*.weights
+models/bundles/
+checkpoints/
+runs/
+
+# Local benchmark and editor state
+benchmarks/local/
+.idea/
+.vscode/

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "tw-plate-v1",
+  "character_classes": {
+    "L": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "D": "0123456789"
+  },
+  "rules": [
+    {
+      "id": "standard-lll-dddd",
+      "tokens": [
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "legacy-dddd-ll",
+      "tokens": [
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "L"},
+        {"class": "L"}
+      ],
+      "separator": "-",
+      "separator_after": [4],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    }
+  ]
+}

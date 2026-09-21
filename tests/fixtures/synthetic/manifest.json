@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "generator_version": "0.1.0.dev0",
+  "synthetic_only": true,
+  "fixtures": [
+    {
+      "path": "000000.png",
+      "seed": 42000,
+      "canonical": "8609TS",
+      "display": "8609-TS",
+      "rule_id": "legacy-dddd-ll",
+      "sha256": "b33c6e7f678b16e36eb42d25655e4255c6177e5c7ab962db9d262a01ac200ef8"
+    },
+    {
+      "path": "000001.png",
+      "seed": 42001,
+      "canonical": "YKR9456",
+      "display": "YKR-9456",
+      "rule_id": "standard-lll-dddd",
+      "sha256": "1291f0005a4665ca68b85e90efdc9113d78310ba7eecde22d6d6a1cd52e5fd82"
+    },
+    {
+      "path": "000002.png",
+      "seed": 42002,
+      "canonical": "JKD8542",
+      "display": "JKD-8542",
+      "rule_id": "standard-lll-dddd",
+      "sha256": "81bc39f183f6b123a2198e1dc35382e6dc9bb799b30dbf09fa9aa41cde1e8cf1"
+    },
+    {
+      "path": "000003.png",
+      "seed": 42003,
+      "canonical": "4287FU",
+      "display": "4287-FU",
+      "rule_id": "legacy-dddd-ll",
+      "sha256": "3446c7dcf778470067535d672bf483d536795e886ceacdcebfe53a2109dea874"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "3waPlateAI generation summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated", "seed", "rule_counts", "plate_type_counts", "charset_sha256", "rules_sha256", "template_sha256", "augmentation_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "generated": {"type": "integer", "minimum": 1},
+    "seed": {"type": "integer"},
+    "rule_counts": {"$ref": "#/$defs/counts"},
+    "plate_type_counts": {"$ref": "#/$defs/counts"},
+    "charset_sha256": {"$ref": "#/$defs/sha256"},
+    "rules_sha256": {"$ref": "#/$defs/sha256"},
+    "template_sha256": {"$ref": "#/$defs/sha256"},
+    "augmentation_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
