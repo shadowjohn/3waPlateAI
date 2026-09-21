@@ -13,6 +13,10 @@ DEFAULT_RULES = ROOT / "configs/plate_rules/tw_plate_v1.json"
 DEFAULT_TEMPLATE = ROOT / "configs/plate_templates/standard_white_v1.json"
 DEFAULT_AUGMENTATION = ROOT / "configs/augmentation/standard_v1.json"
 NONE_AUGMENTATION = ROOT / "configs/augmentation/none_v1.json"
+V1_CHARSET = ROOT / "configs/charsets/tw_new_style_private_passenger_v1.txt"
+V1_RULES = ROOT / "configs/plate_rules/tw_new_style_private_passenger_v1.json"
+V1_TEMPLATE = ROOT / "configs/plate_templates/new_style_private_passenger_white_v1.json"
+V1_NONE_AUGMENTATION = ROOT / "configs/augmentation/none_v1.json"
 
 
 def write_json(path: Path, value: Any) -> Path:
@@ -31,6 +35,13 @@ def valid_rule_document() -> dict[str, Any]:
 @pytest.fixture
 def valid_template_document() -> dict[str, Any]:
     return json.loads(DEFAULT_TEMPLATE.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def v1_charset():
+    from plateai_shared.rules import load_character_set
+
+    return load_character_set(V1_CHARSET)
 
 
 @pytest.fixture
