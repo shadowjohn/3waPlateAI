@@ -15,14 +15,14 @@
 - Only RGB `uint8 [height, width, 3]` plus exactly four finite in-frame points are valid input.
 - Convex-hull validation precedes semantic assignment and homography creation.
 - Select top/bottom from opposite long-edge midpoints and long-axis projections; never use `min(x+y)` or `min(x)`.
-- Reject ambiguity, low area, duplicate, concave, self-intersecting, and homography-invalid input with `InvalidCornersError` reason codes.
+- Reject ambiguity, low area, duplicate, non-convex, and homography-invalid input with `InvalidCornersError` reason codes. A raw self-intersecting ordering of a convex point set is normalized, because the public API accepts arbitrary corner order.
 - Output is always RGB `uint8 [160, 380, 3]`, `INTER_LINEAR`, white constant border, and no extra scaling.
 - Models, real images, generated datasets, and benchmarks remain ignored and uncommitted.
 
 ## Review Focus
 
 1. Every permutation of a valid trapezoid normalizes identically; Task 1.
-2. Bow-tie, duplicate, non-finite, out-of-frame and low-area candidates fail before OpenCV; Task 1.
+2. A raw bow-tie ordering normalizes safely; duplicate, non-finite, out-of-frame, non-convex, and low-area candidates fail before OpenCV; Task 1.
 3. Near-square/diamond geometry is rejected as ambiguous rather than arbitrarily flipped; Task 1.
 4. Valid warps are exactly `380x160` and feed M2 preprocessing directly; Task 2.
 5. M3a does not introduce detector data, weights, training, or ONNX; Task 3.

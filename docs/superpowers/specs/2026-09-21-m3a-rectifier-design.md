@@ -29,8 +29,11 @@ does not silently substitute any other output ratio or resolution.
 1. Reject non-finite points, duplicate points, points outside the source image,
    and hulls that do not contain exactly four vertices.
 2. Build the convex hull before assigning semantic positions. Reject a hull
-   below an explicit source-image-relative area threshold; a concave,
-   self-intersecting, or bow-tie candidate therefore cannot reach OpenCV.
+   below an explicit source-image-relative area threshold or one that does not
+   contain all four points. A raw bow-tie *ordering* of an otherwise convex
+   point set is intentionally normalized: accepting arbitrary input order is
+   part of this API contract. A concave or degenerate point set cannot reach
+   OpenCV.
 3. Put the hull in cyclic order. Compare the two pairs of opposite edges and
    require an unambiguous longer pair. The longer pair is the projected plate
    horizontal axis; the other pair is the vertical axis.
@@ -51,10 +54,10 @@ stable reason code suitable for a future Reader response.
 ## M1/M2 integration and acceptance
 
 M1's perspective-augmented synthetic output and its known corners are the M3a
-ground-truth test source. Tests cover every permutation of a valid quadrilateral,
-extreme trapezoids, near-diamond ambiguity, bow ties, concavity, duplicates,
-non-finite points, out-of-frame points, and low area. A successful known-corner
-warp must retain the source plate's correspondence and produce exactly
+ground-truth test source. Tests cover every permutation of a valid quadrilateral
+(including a raw bow-tie ordering), extreme trapezoids, near-diamond ambiguity,
+concavity, duplicates, non-finite points, out-of-frame points, and low area. A
+successful known-corner warp must retain the source plate's correspondence and produce exactly
 `380 x 160` RGB. The output must pass M2's `preprocess_v1_rgb` shape/margin
 contract.
 
