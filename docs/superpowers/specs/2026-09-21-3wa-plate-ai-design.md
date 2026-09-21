@@ -1,7 +1,7 @@
 # 3waPlateAI Design Specification
 
 - Date: 2026-09-21
-- Status: Proposed for review
+- Status: Approved for M1 implementation planning; amended after design review
 - Repository: shadowjohn/3waPlateAI
 - License: MIT for original project code; third-party assets and dependencies retain their own licenses.
 
@@ -64,7 +64,17 @@ The detector returns one bounding box and four keypoints in this fixed order:
 3. right_bottom
 4. left_bottom
 
-Reader applies a homography to those points and produces a normalized plate crop. Keypoint visibility and confidence are preserved so low-quality geometry can be rejected or routed to a fallback.
+The semantic keypoint labels are an orientation hint, not permission to pass the raw array directly to OpenCV. Rectifier must normalize and validate every quadrilateral before computing a homography:
+
+1. reject non-finite, duplicate, or low-confidence points;
+2. compute a four-vertex convex hull and reject self-intersection, concavity, or area below the configured fraction of the detection box;
+3. restore a clockwise cyclic order;
+4. choose the cyclic rotation/reflection that best preserves the detector's semantic labels while satisfying the geometric checks;
+5. return the canonical left_top, right_top, right_bottom, left_bottom order plus a normalization flag and quality score.
+
+Pure geometry cannot reliably distinguish an upright plate from the same quadrilateral rotated 180 degrees. If semantic orientation cannot be recovered confidently, Reader returns an invalid_corners rejection instead of forcing a plausible but potentially upside-down warp.
+
+Only validated canonical corners are passed to the homography. Keypoint visibility and confidence are preserved so low-quality geometry can be rejected or routed to a documented fallback.
 
 ### 4.4 Recognition-only OCR runtime
 
@@ -146,7 +156,9 @@ Generated datasets, private evaluation images, trained weights, caches, and loca
 
 ### 7.1 Character set
 
-The character set is an ordered UTF-8 file with one symbol per line. Its hash is recorded in the bundle manifest. Training, export, and inference must all use that exact file.
+The character set is an ordered UTF-8 file with one visible output symbol per line. It never contains the CTC blank token. Its hash is recorded in the bundle manifest. Training, export, and inference must all use that exact file.
+
+For a CTC recognizer, the bundle manifest must declare an integer blank_index, class_count equal to len(charset) + 1, and index_mapping set to charset-order-skipping-blank. This makes index-to-symbol mapping unambiguous whether the training framework places blank first, last, or at another explicit index. Export validation must reject a recognizer output dimension, blank index, or mapping that does not match this contract.
 
 The first milestone supports uppercase Latin letters and decimal digits. Special plate characters such as 軍, 使, 外, 臨, 試, and 電 are added only through an explicit rule and character-set version.
 
@@ -185,6 +197,8 @@ The manifest requires:
 - schema version, model ID, semantic version, and creation time;
 - supported capabilities;
 - detector and recognizer filenames, formats, hashes, and tensor contracts;
+- recognizer batch mode: either dynamic with min, opt, and max batch sizes, or fixed with batch size and padding policy;
+- decoder type, exact CTC blank index, class count, and index-to-character mapping;
 - keypoint names and ordering;
 - preprocessing and postprocessing parameters;
 - normalized plate dimensions;
@@ -192,7 +206,7 @@ The manifest requires:
 - training-data provenance summary;
 - compatible Reader contract version.
 
-Reader validates required files, hashes, schema versions, tensor metadata, and capability compatibility before loading a bundle.
+Reader validates required files, hashes, schema versions, tensor metadata, decoder semantics, batch contract, and capability compatibility before loading a bundle. A TensorRT engine profile is created ahead of serving and is never rebuilt merely because one frame contains a different number of plates.
 
 ### 7.4 Reader result
 
@@ -269,6 +283,8 @@ Reader exposes three layers:
 
 The library is the source of truth. CLI and API surfaces call it rather than duplicating pipeline logic.
 
+For a frame with multiple detected plates, Reader preserves detection order, rectifies all accepted crops, and submits recognizer work in batches. A dynamic-batch recognizer chunks crops at the manifest's max batch size. A fixed-batch recognizer chunks at its declared size, pads the last chunk with neutral crops according to the manifest, and discards padded outputs. Batch size one is valid but is treated as an explicit loop contract. Reader must not trigger TensorRT engine rebuilding in the request path. Timing output records real crop count, padded count, chunk count, and recognizer batch sizes.
+
 ## 11. Evaluation and performance
 
 Accuracy metrics include:
@@ -290,7 +306,9 @@ The engineering target is an end-to-end path below 10–15 ms per plate on a sui
 
 - Unit tests cover grammar generation, normalization, constrained decoding, transforms, and bundle validation.
 - Property tests generate many legal plates and prove they round-trip through normalization and formatting.
-- Contract tests reject missing, modified, or incompatible bundle files.
+- Contract tests reject missing, modified, or incompatible bundle files, ambiguous CTC blank mappings, and invalid dynamic/fixed batch declarations.
+- Rectifier tests cover all point permutations, crossed semantic labels, degenerate hulls, low area, low confidence, and unresolvable orientation.
+- Reader batching tests cover zero, one, exact-batch, partial-batch, and over-max plate counts without engine rebuilding.
 - Integration tests run a small deterministic synthetic fixture set through the available pipeline.
 - Export tests compare native and ONNX model outputs.
 - Benchmark tests are separate from correctness tests and never use fragile wall-clock thresholds in normal CI.
@@ -344,15 +362,15 @@ The command produces 100 valid images, a labels file, metadata JSONL, and a gene
 
 ### M2 — Recognition training and ONNX export
 
-Fine-tune a compact recognizer using the shared character set, evaluate it, export ONNX, verify parity, and create a crop-only development bundle.
+Fine-tune a compact recognizer using the shared visible character set, declare and verify its CTC blank index and class mapping, evaluate it, export ONNX, verify parity, and create a crop-only development bundle with an explicit batch contract.
 
 ### M3 — Four-corner plate detector
 
-Generate or label detector data, train the pose detector, evaluate boxes and corners, and add perspective rectification.
+Generate or label detector data, train the pose detector, evaluate boxes and corners, and add validated corner normalization plus perspective rectification.
 
 ### M4 — High-speed Reader
 
-Load full bundles, run the end-to-end pipeline, add constrained decoding, benchmark providers and precision modes, and expose CLI/library interfaces.
+Load full bundles, run the end-to-end pipeline, add constrained decoding, implement manifest-driven multi-plate batching, benchmark providers and precision modes, and expose CLI/library interfaces.
 
 ### M5 — API and 3wa showroom
 
