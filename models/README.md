@@ -24,6 +24,8 @@ A crop-recognition development bundle may omit the detector only when its manife
 
 It must also declare `rectifier.normalization_strategy` as `convex-hull-semantic-v1`, so raw pose output is never treated as already normalized. Recognizers declare dynamic batch limits or fixed-batch padding behavior, and CTC decoders declare an explicit integer blank index.
 
+M3a implements that strategy as a local deterministic component: it converts an arbitrary ordering of a convex four-corner set into `left_top`, `right_top`, `right_bottom`, `left_bottom`, then warps exactly to the M2 RGB `380×160` source contract. It is not a detector and does not create or publish a full-detection bundle. M3b remains responsible for detector datasets, training, keypoint-output alignment, and detector ONNX export.
+
 Validate local manifests with `schemas/model_manifest.schema.json` plus `plateai_shared.schema_validation.validate_model_manifest`. Users who distribute a bundle must include a bundle-specific `THIRD_PARTY_LICENSES.md` covering the trained artifact, training data, fonts, model architecture/code, converters, runtimes, and other incorporated material.
 
 The repository's `.gitignore` blocks common model extensions and `models/bundles/`. Keep private tuning results, production bundles, and benchmark output in access-controlled storage appropriate to your own project.

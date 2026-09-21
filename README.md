@@ -4,15 +4,15 @@
 
 The public repository is deliberately source-only. It contains the code, schemas, configuration, documentation, and four harmless synthetic CI fixtures, but official repositories and releases publish **no checkpoints, trained weights, ONNX models, TensorRT engines, or Model Bundles**. Data rights, legal review, compute, training, tuning, and maintenance of every resulting model remain with the user.
 
-M1 currently delivers a deterministic CPU pipeline for recognizer crops. Training loops, pose detection, the production Reader, and serving layers remain later milestones; see the approved [design specification](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md).
+M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC training and ONNX export, and M3a provides the deterministic four-corner rectifier that connects them. Pose detection, complete Reader inference, and serving remain later milestones; see the approved [design specification](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md).
 
 ## What is here
 
-| Area | Responsibility | M1 status |
+| Area | Responsibility | Delivery status |
 |---|---|---|
 | `plateai_shared` | Immutable rules and JSON contracts shared across training and inference | Available |
 | `plateai_trainer.synthetic` | Rule sampling, clean rendering, deterministic augmentation, and transactional dataset output | Available |
-| `plateai_reader` | Detection, geometric normalization, batched recognition, and constrained decoding | Planned |
+| `plateai_reader` | Four-corner geometric normalization; detector, batched recognition, and constrained decoding follow later | M3a rectifier available |
 | Model Bundle | Hash-verified model, charset, rule, tensor, batch, decoder, and rectifier contract | Schema available; no bundle published |
 
 ## Quick start
@@ -52,6 +52,12 @@ The four PNG files under `tests/fixtures/synthetic/` are algorithmically generat
 ## M2 local recognition
 
 The optional `training` extra provides a local PyTorch CTC trainer and ONNX exporter for the v1 crop contract. It uses Pillow-golden grayscale preprocessing, 80 CTC timesteps, blank index zero, and validates native-versus-ONNX parity before publishing an ignored local bundle. See `docs/training.md`; datasets, weights, ONNX files, runs, and bundles are not committed.
+
+## M3a deterministic rectification
+
+`plateai_reader.rectifier` accepts a `uint8` RGB source image plus four finite, in-frame corners in any order. It validates the convex hull, rejects degenerate or orientation-ambiguous geometry, uses the long plate edges to determine top/bottom and left/right semantics, then returns a canonical RGB `160×380` crop for M2.
+
+The only warp targets discrete destination pixels `(0,0)`, `(379,0)`, `(379,159)`, and `(0,159)` with OpenCV bilinear interpolation and a white constant border. The identity regression verifies every outer output pixel matches its source coordinate, so this contract does not hide last-row or last-column border mixing. M3a contains no detector data, detector training, detector weight, or detector ONNX export; those are M3b work.
 
 ## Train your own model
 

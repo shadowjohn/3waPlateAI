@@ -100,6 +100,10 @@ def test_invalid_corners_never_call_opencv(monkeypatch):
     monkeypatch.setattr(cv2, "getPerspectiveTransform", pytest.fail)
     with pytest.raises(InvalidCornersError):
         rectify_plate(rgb, invalid_points)
+
+def test_identity_rectification_preserves_every_outer_pixel_without_border_mixing():
+    result = rectify_plate(rgb, [[0, 0], [379, 0], [379, 159], [0, 159]])
+    assert_all_outer_rows_and_columns_match_source(result.image_rgb, rgb)
 ```
 
 - [ ] **Step 2: Verify RED**
