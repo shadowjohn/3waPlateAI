@@ -27,6 +27,27 @@ class PlateTemplate:
 
 
 @dataclass(frozen=True, slots=True)
+class PlateTemplateSelector:
+    """Select a template from a single config using the rule's plate type."""
+
+    id: str
+    fallback: PlateTemplate
+    by_plate_type: Mapping[str, PlateTemplate]
+    require_known_plate_type: bool
+
+    def resolve(self, plate_type: str) -> PlateTemplate:
+        selected = self.by_plate_type.get(plate_type)
+        if selected is not None:
+            return selected
+        if self.require_known_plate_type:
+            raise ValueError(
+                f"plate template selector {self.id!r} has no template for "
+                f"plate_type {plate_type!r}"
+            )
+        return self.fallback
+
+
+@dataclass(frozen=True, slots=True)
 class FontSpec:
     kind: Literal["hershey", "truetype"]
     name: str

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "tw-motorcycle-colours-v1",
+  "character_classes": {
+    "L": "ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "D": "012356789"
+  },
+  "rules": [
+    {
+      "id": "ordinary-heavy-motorcycle-lll-dddd",
+      "tokens": [{"class": "L"}, {"class": "L"}, {"class": "L"}, {"class": "D"}, {"class": "D"}, {"class": "D"}, {"class": "D"}],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "ordinary-heavy-motorcycle",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "large-heavy-motorcycle-yellow-lll-dddd",
+      "tokens": [{"class": "L"}, {"class": "L"}, {"class": "L"}, {"class": "D"}, {"class": "D"}, {"class": "D"}, {"class": "D"}],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "large-heavy-motorcycle-yellow",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "large-heavy-motorcycle-red-over-550cc-lll-dddd",
+      "tokens": [{"class": "L"}, {"class": "L"}, {"class": "L"}, {"class": "D"}, {"class": "D"}, {"class": "D"}, {"class": "D"}],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "large-heavy-motorcycle-red-over-550cc",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "light-motorcycle-50cc-green-lll-dddd",
+      "tokens": [{"class": "L"}, {"class": "L"}, {"class": "L"}, {"class": "D"}, {"class": "D"}, {"class": "D"}, {"class": "D"}],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "light-motorcycle-50cc-green",
+      "weight": 1.0,
+      "enabled": true
+    }
+  ]
+}

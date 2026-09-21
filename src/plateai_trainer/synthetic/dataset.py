@@ -29,7 +29,7 @@ from .models import (
     ImageEncoder,
 )
 from .renderer import render_plate
-from .templates import load_template
+from .templates import load_template_selector
 
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -131,7 +131,7 @@ def generate_dataset(
     _validate_output_request(request)
     charset = load_character_set(request.charset_path)
     ruleset = load_ruleset(request.rules_path, charset)
-    template = load_template(request.template_path)
+    template_selector = load_template_selector(request.template_path)
     profile = load_augment_profile(request.augmentation_path)
     font = resolve_font(request.font)
 
@@ -182,7 +182,11 @@ def generate_dataset(
             for index in range(request.count):
                 sample_seed = derive_sample_seed(request.seed, index)
                 sample = generate_plate(ruleset, random.Random(sample_seed))
-                rendered = render_plate(sample, template, font)
+                rendered = render_plate(
+                    sample,
+                    template_selector.resolve(sample.plate_type),
+                    font,
+                )
                 augmented = apply_augmentations(rendered, profile, sample_seed)
                 encoded = encoder(augmented.image_rgb)
                 if not isinstance(encoded, bytes) or not encoded:
