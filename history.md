@@ -109,3 +109,9 @@ This file is an append-only record of important implementation decisions, local 
 - M3b composite data will place one to three M1-rendered v1 plates per user-authorized local background, preserving exact per-instance semantic corners and bbox GT. Background identity/hashes and disjoint train/validation background sets are required; no background, real plate image, dataset, checkpoint, or ONNX file is committed.
 - Reader inverse letterboxing must transform bbox and all eight corner values, then clip emitted points to discrete `[0,width-1]` and `[0,height-1]` bounds before M3a. A rejected M3a instance cannot prevent other NMS survivors from rectifying.
 - Formal spec: `docs/superpowers/specs/2026-09-21-m3b-native-pose-detector-design.md`. Implementation, model training, ONNX export, TensorRT benchmark, real-image accuracy, and deployment remain unstarted and unverified.
+
+## 2026-09-21 - M3b implementation plan prepared
+
+- The approved M3b design is decomposed in `docs/superpowers/plans/2026-09-21-m3b-native-pose-detector.md` into seven atomic, test-first commits: shared OpenCV letterbox contract; 1-3-instance transactional composites; native pose network/loss; deterministic local training; NumPy Reader NMS and isolated M3a handoff; strict ONNX/full-bundle export; then local workflow documentation and package regression.
+- The plan explicitly covers odd-padding inverse mapping for all corners, semantic-corner/non-overlap composition, deterministic NMS tie handling, train/validation background SHA-256 separation, native-versus-ONNX NMS parity, and full-bundle rejection cases. It preserves M2 crop-only validation and M3a's 380x160 rectifier boundary.
+- This is planning evidence only. No detector source implementation, dependency change, composite dataset, user background, checkpoint, ONNX model, bundle, TensorRT benchmark, real-image result, browser/API integration, remote CI result, or deployment validation has been added.
