@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-import ctypes
-import errno
 import hashlib
 import json
-import os
 import random
-import shutil
-import sys
 import uuid
 from collections import Counter
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from plateai_shared.publication import (
+    OutputExistsError,
+    PublicationError,
+    publish_directory_no_replace,
+    remove_owned_staging,
+)
 from plateai_shared.rules import generate_plate, load_character_set, load_ruleset
 
 from .augment import apply_augmentations, derive_sample_seed, load_augment_profile
@@ -34,66 +35,16 @@ from .templates import load_template
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
-class GenerationError(Exception):
-    """Base class for stable dataset-generation failures."""
+GenerationError = PublicationError
 
 
 class InvalidGenerationRequest(GenerationError, ValueError):
     """Raised before generation when a request cannot be honored safely."""
 
 
-class OutputExistsError(GenerationError, FileExistsError):
-    """Raised when publication could modify an existing output target."""
-
-
-def _publish_no_replace(staging: Path, output: Path) -> None:
-    """Atomically publish a directory without clobbering a raced target."""
-
-    if sys.platform.startswith("linux"):
-        libc = ctypes.CDLL(None, use_errno=True)
-        renameat2 = getattr(libc, "renameat2", None)
-        if renameat2 is None:
-            raise GenerationError(
-                "atomic no-clobber publication is unavailable on this Linux runtime"
-            )
-        renameat2.argtypes = [
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_uint,
-        ]
-        renameat2.restype = ctypes.c_int
-        at_current_working_directory = -100
-        rename_no_replace = 1
-        result = renameat2(
-            at_current_working_directory,
-            os.fsencode(staging),
-            at_current_working_directory,
-            os.fsencode(output),
-            rename_no_replace,
-        )
-        if result == 0:
-            return
-        error_number = ctypes.get_errno()
-        if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
-            raise OutputExistsError(f"output already exists: {output}")
-        if error_number in {errno.ENOSYS, errno.EINVAL}:
-            raise GenerationError(
-                "atomic no-clobber publication is unavailable on this filesystem"
-            )
-        raise OSError(error_number, os.strerror(error_number), output)
-
-    if os.name == "nt":
-        try:
-            os.rename(staging, output)
-        except FileExistsError as exc:
-            raise OutputExistsError(f"output already exists: {output}") from exc
-        return
-
-    raise GenerationError(
-        "atomic no-clobber publication is supported only on Linux and Windows"
-    )
+# Compatibility seams for M1 callers and its race-condition test.
+_publish_no_replace = publish_directory_no_replace
+_safe_remove_staging = remove_owned_staging
 
 
 def _sha256_file(path: Path) -> str:
@@ -168,15 +119,6 @@ def _validate_output_request(request: GenerationRequest) -> None:
         raise InvalidGenerationRequest(
             f"output parent exists but is not a directory: {ancestor}"
         )
-
-
-def _safe_remove_staging(staging: Path, output: Path) -> None:
-    if (
-        staging.parent.resolve() == output.parent.resolve()
-        and staging.name.startswith(f".{output.name}.partial-")
-        and staging.exists()
-    ):
-        shutil.rmtree(staging)
 
 
 def generate_dataset(

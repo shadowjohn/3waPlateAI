@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -112,3 +113,65 @@ def default_request(tmp_path):
         template_path=DEFAULT_TEMPLATE,
         augmentation_path=DEFAULT_AUGMENTATION,
     )
+
+
+@pytest.fixture
+def v1_dataset(tmp_path):
+    from plateai_trainer.synthetic.dataset import generate_dataset
+    from plateai_trainer.synthetic.models import GenerationRequest
+
+    output = tmp_path / "v1-dataset"
+    generate_dataset(
+        GenerationRequest(
+            count=1,
+            seed=42,
+            output=output,
+            charset_path=V1_CHARSET,
+            rules_path=V1_RULES,
+            template_path=V1_TEMPLATE,
+            augmentation_path=V1_NONE_AUGMENTATION,
+        )
+    )
+    return output
+
+
+@pytest.fixture
+def v1_repeat_dataset(v1_dataset):
+    from plateai_shared.contracts import GeneratedPlate
+    from plateai_trainer.synthetic.encoder import encode_png
+    from plateai_trainer.synthetic.fonts import resolve_font
+    from plateai_trainer.synthetic.renderer import render_plate
+    from plateai_trainer.synthetic.templates import load_template
+
+    sample = GeneratedPlate(
+        "AAA8888",
+        "AAA-8888",
+        "new-style-private-passenger-lll-dddd",
+        "new-style-private-passenger",
+    )
+    rendered = render_plate(sample, load_template(V1_TEMPLATE), resolve_font(None))
+    encoded = encode_png(rendered.image_rgb)
+    image_path = v1_dataset / "images/000000.png"
+    image_path.write_bytes(encoded)
+
+    metadata_path = v1_dataset / "metadata.jsonl"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.update(
+        {
+            "canonical": sample.canonical,
+            "display": sample.display,
+            "rule_id": sample.rule_id,
+            "plate_type": sample.plate_type,
+            "corners": rendered.corners.tolist(),
+            "renderer": dict(rendered.metadata),
+            "image_sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+    )
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    (v1_dataset / "labels.txt").write_text(
+        "images/000000.png\tAAA8888\n", encoding="utf-8", newline="\n"
+    )
+    return v1_dataset
