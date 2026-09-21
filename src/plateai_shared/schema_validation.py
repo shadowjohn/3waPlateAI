@@ -135,8 +135,9 @@ def validate_model_manifest(
         raise DocumentValidationError(
             "components.recognizer.inputs: must equal the v1 NCHW input tensor"
         )
+    expected_class_count = visible_charset_symbol_count + 1
     expected_outputs = [
-        {"name": "logits", "dtype": "float32", "shape": ["batch", 80, 34]}
+        {"name": "logits", "dtype": "float32", "shape": ["batch", 80, expected_class_count]}
     ]
     if recognizer["outputs"] != expected_outputs:
         raise DocumentValidationError(
@@ -156,8 +157,7 @@ def validate_model_manifest(
         raise DocumentValidationError(
             "charset.visible_symbols: does not match the supplied charset"
         )
-    expected_class_count = visible_charset_symbol_count + 1
-    if decoder["class_count"] != expected_class_count or expected_class_count != 34:
+    if decoder["class_count"] != expected_class_count:
         raise DocumentValidationError(
-            "decoder.class_count: must equal 34 (33 visible symbols plus blank)"
+            f"decoder.class_count: must equal {expected_class_count} ({visible_charset_symbol_count} visible symbols plus blank)"
         )

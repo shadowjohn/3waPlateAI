@@ -105,6 +105,14 @@ def test_v1_crop_manifest_accepts_exact_preprocess_and_tensor_contract():
     validate_model_manifest(valid_v1_manifest(), SCHEMA, visible_charset_symbol_count=33)
 
 
+def test_manifest_accepts_unified_34_symbol_charset():
+    manifest = valid_v1_manifest()
+    manifest["charset"]["visible_symbols"] = 34
+    manifest["components"]["recognizer"]["outputs"][0]["shape"] = ["batch", 80, 35]
+    manifest["decoder"]["class_count"] = 35
+    validate_model_manifest(manifest, SCHEMA, visible_charset_symbol_count=34)
+
+
 @pytest.mark.parametrize(
     ("path", "value", "message"),
     [

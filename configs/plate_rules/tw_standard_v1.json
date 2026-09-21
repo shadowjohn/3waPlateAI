@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "id": "tw-standard-v1",
+  "character_classes": {
+    "L": "ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "D": "0123456789"
+  },
+  "rules": [
+    {
+      "id": "new-style-lll-dddd",
+      "tokens": [
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "legacy-ll-dddd",
+      "tokens": [
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [2],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "legacy-dddd-ll",
+      "tokens": [
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "L"},
+        {"class": "L"}
+      ],
+      "separator": "-",
+      "separator_after": [4],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "moto-lll-ddd",
+      "tokens": [
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "moto-lld-ddd",
+      "tokens": [
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "moto-dll-ddd",
+      "tokens": [
+        {"class": "D"},
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "legacy-ll-ddd",
+      "tokens": [
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [2],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "legacy-ddd-ll",
+      "tokens": [
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "L"},
+        {"class": "L"}
+      ],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "legacy-ll-dd",
+      "tokens": [
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "D"},
+        {"class": "D"}
+      ],
+      "separator": "-",
+      "separator_after": [2],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "id": "legacy-dd-ll",
+      "tokens": [
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "L"},
+        {"class": "L"}
+      ],
+      "separator": "-",
+      "separator_after": [2],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    }
+  ]
+}

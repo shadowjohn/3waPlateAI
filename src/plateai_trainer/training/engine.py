@@ -43,6 +43,8 @@ class TrainingConfig:
     learning_rate: float = 1e-3
     seed: int = 42
     device: str = "cpu"
+    charset_path: Path | None = None
+    rules_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,10 +218,10 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
     """Train and publish a local v1 recognition run without replacing output."""
 
     device = _validate_config(config)
-    charset_path = _default_config_path(
+    charset_path = config.charset_path or _default_config_path(
         "configs/charsets/tw_new_style_private_passenger_v1.txt"
     )
-    rules_path = _default_config_path(
+    rules_path = config.rules_path or _default_config_path(
         "configs/plate_rules/tw_new_style_private_passenger_v1.json"
     )
     train_dataset = M1CropDataset(config.train_directory, charset_path, rules_path)
@@ -248,7 +250,7 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
     )
     charset = load_character_set(charset_path)
     codec = CTCCodec.from_charset(charset)
-    model = PlateCTCNet().to(device)
+    model = PlateCTCNet(class_count=codec.class_count).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     config.output_directory.parent.mkdir(parents=True, exist_ok=True)

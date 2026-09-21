@@ -14,10 +14,9 @@ from numpy.typing import NDArray
 from PIL import Image
 
 from plateai_shared.recognition import CTCCodec, preprocess_v1_rgb
-from plateai_shared.rules import load_character_set
+from plateai_shared.rules import load_character_set, load_ruleset
 
 
-_PLATE_TYPE = "new-style-private-passenger"
 _EXPECTED_SIZE = (380, 160)
 
 
@@ -88,6 +87,11 @@ class M1CropDataset:
         except ValueError as exc:
             raise TrainingDataError(f"invalid requested charset: {charset_path}") from exc
         self._codec = CTCCodec.from_charset(charset)
+        try:
+            ruleset = load_ruleset(Path(rules_path), charset)
+        except ValueError as exc:
+            raise TrainingDataError(f"invalid requested rules: {rules_path}") from exc
+        self._allowed_plate_types = frozenset(rule.plate_type for rule in ruleset.rules)
         charset_hash = charset.sha256
         rules_hash = _sha256_file(Path(rules_path))
 
@@ -176,7 +180,7 @@ class M1CropDataset:
             metadata = metadata_by_path[raw_path]
             if metadata.get("canonical") != canonical:
                 raise TrainingDataError(f"metadata.jsonl:{raw_path}: canonical text does not match")
-            if metadata.get("plate_type") != _PLATE_TYPE:
+            if metadata.get("plate_type") not in self._allowed_plate_types:
                 raise TrainingDataError(f"metadata.jsonl:{raw_path}: incompatible plate_type")
             if metadata.get("image_sha256") != _sha256_file(image_path):
                 raise TrainingDataError(f"metadata.jsonl:{raw_path}: PNG SHA-256 does not match")

@@ -45,6 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=_positive_float, default=1e-3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--charset", type=Path, default=None)
+    parser.add_argument("--rules", type=Path, default=None)
     return parser
 
 
@@ -59,6 +61,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         learning_rate=args.learning_rate,
         seed=args.seed,
         device=args.device,
+        charset_path=args.charset,
+        rules_path=args.rules,
     )
     try:
         train_recognizer(config)

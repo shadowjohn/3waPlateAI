@@ -74,6 +74,70 @@ def test_export_refuses_parity_failure_without_publishing_output(trained_run, tm
     assert not output.exists()
 
 
+def test_exported_bundle_supports_35_class_unified_charset(tmp_path):
+    from plateai_trainer.synthetic.dataset import generate_dataset
+    from plateai_trainer.synthetic.models import GenerationRequest
+    from tests.conftest import V1_TEMPLATE, V1_NONE_AUGMENTATION
+
+    charset_path = ROOT / "configs/charsets/tw_standard_v1.txt"
+    rules_path = ROOT / "configs/plate_rules/tw_standard_v1.json"
+
+    train_dir = tmp_path / "std_train"
+    val_dir = tmp_path / "std_val"
+
+    generate_dataset(
+        GenerationRequest(
+            count=2,
+            seed=11,
+            output=train_dir,
+            charset_path=charset_path,
+            rules_path=rules_path,
+            template_path=V1_TEMPLATE,
+            augmentation_path=V1_NONE_AUGMENTATION,
+        )
+    )
+    generate_dataset(
+        GenerationRequest(
+            count=2,
+            seed=22,
+            output=val_dir,
+            charset_path=charset_path,
+            rules_path=rules_path,
+            template_path=V1_TEMPLATE,
+            augmentation_path=V1_NONE_AUGMENTATION,
+        )
+    )
+
+    run = train_recognizer(
+        TrainingConfig(
+            train_directory=train_dir,
+            validation_directory=val_dir,
+            output_directory=tmp_path / "std_run",
+            epochs=1,
+            batch_size=2,
+            seed=9,
+            charset_path=charset_path,
+            rules_path=rules_path,
+        )
+    )
+
+    bundle_dir = tmp_path / "std_bundle"
+    export_crop_bundle(
+        ExportRequest(
+            checkpoint=run.best_checkpoint,
+            report=run.report_path,
+            output=bundle_dir,
+            charset_path=charset_path,
+            rules_path=rules_path,
+        )
+    )
+
+    manifest = validate_crop_bundle(bundle_dir, SCHEMA)
+    assert manifest["charset"]["visible_symbols"] == 34
+    assert manifest["decoder"]["class_count"] == 35
+    assert manifest["components"]["recognizer"]["outputs"][0]["shape"] == ["batch", 80, 35]
+
+
 def test_installed_plateai_export_command_shows_help():
     executable = Path(sys.executable).with_name("plateai-export.exe")
     result = subprocess.run(

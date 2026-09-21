@@ -34,6 +34,14 @@ def test_plate_ctc_net_produces_80_timestep_34_class_logits():
     assert tuple(logits.shape) == (2, 80, 34)
 
 
+def test_plate_ctc_net_supports_configurable_class_count():
+    logits_35 = PlateCTCNet(class_count=35)(torch.zeros((2, 1, 64, 160), dtype=torch.float32))
+    assert tuple(logits_35.shape) == (2, 80, 35)
+    import pytest
+    with pytest.raises(ValueError, match="at least 2 classes"):
+        PlateCTCNet(class_count=1)
+
+
 def test_ctc_training_step_is_finite_and_updates_a_parameter(v1_train_dir):
     torch.manual_seed(7)
     model = PlateCTCNet()

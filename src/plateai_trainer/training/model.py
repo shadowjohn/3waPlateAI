@@ -53,12 +53,12 @@ class TemporalDepthwiseBlock(nn.Module):
 
 
 class PlateCTCNet(nn.Module):
-    """A 34-class crop recognizer with a fixed 80-step CTC time axis."""
+    """A crop recognizer with a fixed 80-step CTC time axis."""
 
     def __init__(self, class_count: int = 34) -> None:
         super().__init__()
-        if class_count != 34:
-            raise ValueError("v1 PlateCTCNet requires exactly 34 classes")
+        if class_count < 2:
+            raise ValueError("PlateCTCNet requires at least 2 classes (blank + 1 symbol)")
         self.class_count = class_count
         self.encoder = nn.Sequential(
             ConvBlock(1, 32, pool=(2, 2)),
