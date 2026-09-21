@@ -66,4 +66,3 @@ def test_resolve_taiwan_plate_font(default_template, value):
     rendered = render_plate(sample, default_template, font)
     assert rendered.image_rgb.shape == (96, 320, 3)
     assert rendered.metadata["rendered_text"] == "AQ-560"
-
