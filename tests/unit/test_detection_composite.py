@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from dataclasses import replace
 
 import cv2
@@ -14,6 +15,10 @@ from plateai_trainer.detection import (
     generate_composite_dataset,
 )
 from plateai_trainer.detection import contracts as contracts_module
+from plateai_trainer.detection import composite as composite_module
+from plateai_trainer.detection.composite import InvalidCompositeRequest
+
+from tests.conftest import ROOT, V1_CHARSET, V1_RULES, V1_TEMPLATE
 
 
 @pytest.fixture
@@ -108,8 +113,27 @@ def test_composite_records_exact_semantic_instances(
     for item in record["instances"]:
         homography = np.asarray(item["transform"]["homography"], dtype=np.float32)
         source = np.asarray(item["source_plate"]["corners"], dtype=np.float32)
+        assert source.tolist() == [
+            [0.0, 0.0],
+            [379.0, 0.0],
+            [379.0, 159.0],
+            [0.0, 159.0],
+        ]
         transformed = cv2.perspectiveTransform(source[None, :, :], homography)[0]
         np.testing.assert_allclose(transformed, item["corners"], atol=1e-4)
+        corners = np.asarray(item["corners"], dtype=np.float32)
+        assert np.all(corners[:, 0] >= 0.0)
+        assert np.all(corners[:, 0] <= record["background"]["width"] - 1)
+        assert np.all(corners[:, 1] >= 0.0)
+        assert np.all(corners[:, 1] <= record["background"]["height"] - 1)
+        assert item["bbox_xyxy"] == [
+            float(np.min(corners[:, 0])),
+            float(np.min(corners[:, 1])),
+            float(np.max(corners[:, 0])),
+            float(np.max(corners[:, 1])),
+        ]
+        assert type(item["source_plate"]["plate_seed"]) is int
+        assert item["source_plate"]["plate_seed"] >= 0
 
 
 def test_composite_rejects_existing_output_without_deleting_it(
@@ -204,3 +228,123 @@ def test_request_defaults_fall_back_to_installed_data_files(tmp_path, monkeypatc
     assert request.charset_path == installed / relative_paths[1]
     assert request.rules_path == installed / relative_paths[2]
     assert request.template_path == installed / relative_paths[3]
+
+
+def test_installed_layout_generation_resolves_packaged_schemas(
+    tmp_path, monkeypatch, background_manifest
+):
+    checkout = tmp_path / "checkout-without-data"
+    installed = tmp_path / "installed"
+    packaged_files = {
+        "configs/detection/composite_v1.json": ROOT
+        / "configs/detection/composite_v1.json",
+        "configs/charsets/tw_new_style_private_passenger_v1.txt": V1_CHARSET,
+        "configs/plate_rules/tw_new_style_private_passenger_v1.json": V1_RULES,
+        "configs/plate_templates/new_style_private_passenger_white_v1.json": V1_TEMPLATE,
+        "schemas/detection_background_manifest.schema.json": ROOT
+        / "schemas/detection_background_manifest.schema.json",
+        "schemas/detection_metadata.schema.json": ROOT
+        / "schemas/detection_metadata.schema.json",
+    }
+    for relative_path, source in packaged_files.items():
+        destination = installed / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+    monkeypatch.setattr(contracts_module, "_REPOSITORY_ROOT", checkout)
+    monkeypatch.setattr(contracts_module, "_INSTALL_DATA_ROOT", installed)
+    monkeypatch.setattr(
+        composite_module,
+        "_BACKGROUND_SCHEMA",
+        checkout / "schemas/detection_background_manifest.schema.json",
+    )
+    monkeypatch.setattr(
+        composite_module,
+        "_METADATA_SCHEMA",
+        checkout / "schemas/detection_metadata.schema.json",
+    )
+
+    output = tmp_path / "installed-layout-output"
+    generate_composite_dataset(
+        CompositeGenerationRequest(
+            output=output,
+            count=1,
+            seed=5,
+            background_manifest=background_manifest,
+        )
+    )
+
+    assert json.loads((output / "metadata.jsonl").read_text(encoding="utf-8"))[
+        "schema_version"
+    ] == 1
+
+
+def test_composite_rejects_non_v1_template(tmp_path, background_manifest):
+    template = json.loads(V1_TEMPLATE.read_text(encoding="utf-8"))
+    template.update({"id": "not-m1-v1", "width": 320, "height": 96})
+    template["text_box"] = [20, 20, 300, 76]
+    template_path = tmp_path / "template.json"
+    template_path.write_text(json.dumps(template), encoding="utf-8")
+
+    with pytest.raises(InvalidCompositeRequest, match="380x160|v1 template"):
+        generate_composite_dataset(
+            CompositeGenerationRequest(
+                output=tmp_path / "wrong-template-output",
+                count=1,
+                seed=5,
+                background_manifest=background_manifest,
+                template_path=template_path,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "rooted_path",
+    [r"\rooted.png", r"C:drive-relative.png", r"C:\absolute.png", r"\\server\share\bg.png"],
+)
+def test_runtime_rejects_windows_rooted_background_paths(
+    tmp_path, background_manifest, monkeypatch, rooted_path
+):
+    document = json.loads(background_manifest.read_text(encoding="utf-8"))
+    document["backgrounds"][0]["image_path"] = rooted_path
+    background_manifest.write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setattr(composite_module, "validate_document", lambda *_args: None)
+
+    with pytest.raises(InvalidCompositeRequest, match="relative|root|anchor|drive"):
+        generate_composite_dataset(
+            CompositeGenerationRequest(
+                output=tmp_path / "rooted-output",
+                count=1,
+                seed=5,
+                background_manifest=background_manifest,
+            )
+        )
+
+
+def test_input_change_during_generation_is_not_published(
+    tmp_path, background_manifest, monkeypatch
+):
+    config_path = tmp_path / "composite.json"
+    config_path.write_bytes((ROOT / "configs/detection/composite_v1.json").read_bytes())
+    real_compose = composite_module._compose_one_image
+
+    def mutate_config_then_compose(*args, **kwargs):
+        record = real_compose(*args, **kwargs)
+        config_path.write_text("{}", encoding="utf-8")
+        return record
+
+    monkeypatch.setattr(composite_module, "_compose_one_image", mutate_config_then_compose)
+    output = tmp_path / "changed-input-output"
+
+    with pytest.raises(InvalidCompositeRequest, match="changed during generation"):
+        generate_composite_dataset(
+            CompositeGenerationRequest(
+                output=output,
+                count=1,
+                seed=5,
+                background_manifest=background_manifest,
+                config_path=config_path,
+            )
+        )
+
+    assert not output.exists()
+    assert list(tmp_path.glob(".changed-input-output.partial-*")) == []

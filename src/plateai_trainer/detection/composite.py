@@ -8,7 +8,7 @@ import math
 import random
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import cv2
@@ -28,7 +28,11 @@ from plateai_trainer.synthetic.fonts import resolve_font
 from plateai_trainer.synthetic.renderer import render_plate
 from plateai_trainer.synthetic.templates import load_template
 
-from .contracts import CompositeGenerationRequest, CompositeGenerationSummary
+from .contracts import (
+    CompositeGenerationRequest,
+    CompositeGenerationSummary,
+    _default_data_path,
+)
 
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -126,11 +130,21 @@ def _load_config(path: Path) -> _CompositeConfig:
 
 def _load_and_hash_background_manifest(path: Path) -> tuple[_Background, ...]:
     document = _read_json(path, "background manifest")
-    validate_document(document, _BACKGROUND_SCHEMA)
+    validate_document(
+        document,
+        _default_data_path("schemas/detection_background_manifest.schema.json"),
+    )
     manifest_root = path.resolve().parent
     backgrounds: list[_Background] = []
     for entry in document["backgrounds"]:
-        relative = Path(entry["image_path"])
+        raw_path = entry["image_path"]
+        windows_path = PureWindowsPath(raw_path)
+        posix_path = PurePosixPath(raw_path)
+        if windows_path.drive or windows_path.root or posix_path.root:
+            raise InvalidCompositeRequest(
+                f"background image path must be relative without a root, drive, or anchor: {raw_path}"
+            )
+        relative = Path(raw_path)
         resolved = (manifest_root / relative).resolve()
         try:
             resolved.relative_to(manifest_root)
@@ -199,6 +213,30 @@ def _create_owned_staging(output: Path) -> Path:
     staging.mkdir(exist_ok=False)
     (staging / "images").mkdir()
     return staging
+
+
+def _snapshot_input_hashes(request: CompositeGenerationRequest, font) -> dict[str, str | None]:
+    return {
+        "background_manifest": _sha256_file(request.background_manifest),
+        "composite_config": _sha256_file(request.config_path),
+        "charset": _sha256_file(request.charset_path),
+        "rules": _sha256_file(request.rules_path),
+        "template": _sha256_file(request.template_path),
+        "font": _sha256_file(font.path) if font.path is not None else None,
+    }
+
+
+def _verify_input_hashes(
+    request: CompositeGenerationRequest,
+    font,
+    expected: dict[str, str | None],
+) -> None:
+    current = _snapshot_input_hashes(request, font)
+    changed = sorted(key for key in expected if current[key] != expected[key])
+    if changed:
+        raise InvalidCompositeRequest(
+            f"input changed during generation: {', '.join(changed)}"
+        )
 
 
 def _bbox(corners: NDArray[np.float32]) -> tuple[float, float, float, float]:
@@ -357,6 +395,7 @@ def _compose_one_image(
                     "rule_id": sample.rule_id,
                     "plate_type": sample.plate_type,
                     "template_id": template.id,
+                    "plate_seed": plate_seed,
                     "corners": rendered.corners.tolist(),
                     "renderer": {
                         "font_kind": rendered.metadata["font_kind"],
@@ -385,7 +424,10 @@ def _compose_one_image(
         },
         "instances": instances,
     }
-    validate_document(record, _METADATA_SCHEMA)
+    validate_document(
+        record,
+        _default_data_path("schemas/detection_metadata.schema.json"),
+    )
     for instance in instances:
         corners = np.asarray(instance["corners"], dtype=np.float32)
         if (
@@ -416,12 +458,23 @@ def generate_composite_dataset(
     """Generate a complete composite dataset and publish it without replacement."""
 
     _validate_request(request)
+    font = resolve_font(request.font)
+    hashes = _snapshot_input_hashes(request, font)
     backgrounds = _load_and_hash_background_manifest(request.background_manifest)
     config = _load_config(request.config_path)
     charset = load_character_set(request.charset_path)
     ruleset = load_ruleset(request.rules_path, charset)
     template = load_template(request.template_path)
-    font = resolve_font(request.font)
+    if (
+        template.id != "new-style-private-passenger-white-v1"
+        or template.width != 380
+        or template.height != 160
+    ):
+        raise InvalidCompositeRequest(
+            "M3b composites require the M1 v1 template "
+            "new-style-private-passenger-white-v1 at 380x160"
+        )
+    _verify_input_hashes(request, font, hashes)
     rng = np.random.default_rng(request.seed)
     staging = _create_owned_staging(request.output)
     try:
@@ -440,14 +493,7 @@ def generate_composite_dataset(
             for index in range(request.count)
         ]
         _write_jsonl(staging / "metadata.jsonl", records)
-        hashes = {
-            "background_manifest": _sha256_file(request.background_manifest),
-            "composite_config": _sha256_file(request.config_path),
-            "charset": charset.sha256,
-            "rules": _sha256_file(request.rules_path),
-            "template": _sha256_file(request.template_path),
-            "font": _sha256_file(font.path) if font.path is not None else None,
-        }
+        _verify_input_hashes(request, font, hashes)
         generation_config = {
             "schema_version": 1,
             "seed": request.seed,

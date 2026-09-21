@@ -39,13 +39,14 @@
           "source_plate": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["canonical", "display", "rule_id", "plate_type", "template_id", "corners", "renderer"],
+            "required": ["canonical", "display", "rule_id", "plate_type", "template_id", "plate_seed", "corners", "renderer"],
             "properties": {
               "canonical": {"type": "string", "minLength": 1},
               "display": {"type": "string", "minLength": 1},
               "rule_id": {"type": "string", "minLength": 1},
               "plate_type": {"type": "string", "minLength": 1},
               "template_id": {"type": "string", "minLength": 1},
+              "plate_seed": {"type": "integer", "minimum": 0},
               "corners": {"$ref": "#/$defs/quad"},
               "renderer": {
                 "type": "object",
