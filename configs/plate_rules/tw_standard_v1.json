@@ -72,6 +72,22 @@
       "enabled": true
     },
     {
+      "id": "moto-ddd-lll",
+      "tokens": [
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "D"},
+        {"class": "L"},
+        {"class": "L"},
+        {"class": "L"}
+      ],
+      "separator": "-",
+      "separator_after": [3],
+      "plate_type": "standard",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
       "id": "moto-lld-ddd",
       "tokens": [
         {"class": "L"},

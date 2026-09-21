@@ -87,7 +87,8 @@ def _seed_everything(seed: int) -> None:
     torch.set_num_threads(1)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    torch.use_deterministic_algorithms(True)
+    # ponytail: ctc_loss_backward_gpu lacks deterministic kernel, warn_only allows CUDA execution
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def _targets_for_batch(targets: torch.Tensor, target_lengths: torch.Tensor) -> list[list[int]]:
@@ -180,7 +181,9 @@ def evaluate_recognizer(
 
 
 def _atomic_write_json(path: Path, document: dict[str, Any]) -> None:
+    path = path.resolve()
     temporary = path.with_name(f".{path.name}.partial-{uuid.uuid4().hex}")
+    temporary.parent.mkdir(parents=True, exist_ok=True)
     temporary.write_text(
         json.dumps(document, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
@@ -189,7 +192,9 @@ def _atomic_write_json(path: Path, document: dict[str, Any]) -> None:
 
 
 def _atomic_save_checkpoint(path: Path, checkpoint: dict[str, Any]) -> None:
+    path = path.resolve()
     temporary = path.with_name(f".{path.name}.partial-{uuid.uuid4().hex}")
+    temporary.parent.mkdir(parents=True, exist_ok=True)
     torch.save(checkpoint, temporary)
     os.replace(temporary, path)
 
@@ -256,10 +261,11 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
     config.output_directory.parent.mkdir(parents=True, exist_ok=True)
     if config.output_directory.exists():
         raise OutputExistsError(f"output already exists: {config.output_directory}")
-    staging = config.output_directory.parent / (
-        f".{config.output_directory.name}.partial-{uuid.uuid4().hex}"
-    )
-    staging.mkdir(exist_ok=False)
+    staging = (
+        config.output_directory.parent
+        / f".{config.output_directory.name}.partial-{uuid.uuid4().hex}"
+    ).resolve()
+    staging.mkdir(parents=True, exist_ok=False)
     try:
         best_accuracy = -1.0
         train_loss = 0.0

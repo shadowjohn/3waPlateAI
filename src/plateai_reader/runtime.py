@@ -336,7 +336,7 @@ class PlateReader:
         batch_sizes: list[int] = []
         for start in range(0, len(accepted), self._recognizer_max_batch):
             chunk = accepted[start : start + self._recognizer_max_batch]
-            batch = np.concatenate(
+            batch = np.stack(
                 [preprocess_v1_rgb(crop) for _, crop in chunk], axis=0
             )
             logits = _single_output(

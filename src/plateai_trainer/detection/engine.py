@@ -233,8 +233,10 @@ def _seed_detector_training(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.set_num_threads(1)
-    torch.use_deterministic_algorithms(True)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # ponytail: CUDA ops without deterministic kernels emit warning instead of crashing
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def _validate_config(config):

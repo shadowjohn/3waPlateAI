@@ -35,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--min-instances", type=int, choices=(1, 2, 3), default=1)
     parser.add_argument("--max-instances", type=int, choices=(1, 2, 3), default=3)
+    parser.add_argument("--charset", type=Path, default=None)
+    parser.add_argument("--rules", type=Path, default=None)
+    parser.add_argument("--template", type=Path, default=None)
     parser.add_argument("--debug", action="store_true")
     return parser
 
@@ -48,12 +51,21 @@ def _error(exc: BaseException, *, debug: bool, exit_code: int) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    kwargs = {}
+    if args.charset is not None:
+        kwargs["charset_path"] = args.charset
+    if args.rules is not None:
+        kwargs["rules_path"] = args.rules
+    if args.template is not None:
+        kwargs["template_path"] = args.template
+
     request = CompositeGenerationRequest(
         output=args.output,
         count=args.count,
         seed=args.seed,
         background_manifest=args.background_manifest,
         instances_per_image=(args.min_instances, args.max_instances),
+        **kwargs,
     )
     try:
         summary = generate_composite_dataset(request)

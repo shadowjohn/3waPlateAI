@@ -28,7 +28,7 @@ def test_standard_rules_load_and_sample_deterministically():
     ruleset = load_ruleset(STD_RULES_PATH, charset)
 
     assert ruleset.id == "tw-standard-v1"
-    assert len(ruleset.rules) == 10
+    assert len(ruleset.rules) == 11
     assert all(rule.enabled for rule in ruleset.rules)
 
     rule_ids = {rule.id for rule in ruleset.rules}
@@ -37,6 +37,7 @@ def test_standard_rules_load_and_sample_deterministically():
         "legacy-ll-dddd",
         "legacy-dddd-ll",
         "moto-lll-ddd",
+        "moto-ddd-lll",
         "moto-lld-ddd",
         "moto-dll-ddd",
         "legacy-ll-ddd",

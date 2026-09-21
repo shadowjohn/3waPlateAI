@@ -63,6 +63,11 @@ def _load_detector_checkpoint(snapshot: bytes) -> PlatePoseNet:
 
 
 def _export_detector_onnx(model: PlatePoseNet, path: Path) -> None:
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     torch.onnx.export(
         model, (torch.zeros((2, 3, 640, 640), dtype=torch.float32),), path,
         input_names=["images"], output_names=["candidates"], opset_version=17,

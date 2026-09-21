@@ -55,8 +55,13 @@ def export_crop_bundle(request: ExportRequest, session_factory: Callable[[Path],
     model = PlateCTCNet(class_count=class_count); model.load_state_dict(checkpoint["model_state_dict"]); model.eval(); torch.set_num_threads(1)
     request.output.parent.mkdir(parents=True, exist_ok=True); staging = request.output.parent / f".{request.output.name}.partial-{uuid.uuid4().hex}"; staging.mkdir()
     try:
+        import sys
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
         onnx_path = staging / "recognizer.onnx"
-        torch.onnx.export(model, (torch.zeros((1,1,64,160), dtype=torch.float32),), onnx_path, input_names=["input"], output_names=["logits"], opset_version=17, dynamo=True, external_data=False, dynamic_shapes=({0: torch.export.Dim("batch", min=1, max=32)},))
+        torch.onnx.export(model, (torch.zeros((2,1,64,160), dtype=torch.float32),), onnx_path, input_names=["input"], output_names=["logits"], opset_version=17, dynamo=True, external_data=False, dynamic_shapes=({0: torch.export.Dim("batch", min=1, max=32)},))
         onnx.checker.check_model(str(onnx_path), full_check=True)
         session = session_factory(onnx_path); inputs, outputs = session.get_inputs(), session.get_outputs()
         if len(inputs)!=1 or len(outputs)!=1 or inputs[0].name!="input" or outputs[0].name!="logits" or inputs[0].type!="tensor(float)" or outputs[0].type!="tensor(float)" or list(inputs[0].shape)[1:]!=[1,64,160] or list(outputs[0].shape)[1:]!=[80,class_count]: raise ExportParityError("ONNX IO contract differs")
