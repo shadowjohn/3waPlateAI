@@ -38,8 +38,16 @@ def resolve_font(value: str | Path | None) -> FontSpec:
             variation_axes=_DEFAULT_VARIATION_AXES,
         )
 
+    if value in {"taiwan_plate", "official", "TaiwanPlate-Regular.ttf"}:
+        official_path = _REPOSITORY_ROOT / "assets" / "fonts" / "TaiwanPlate-Regular.ttf"
+        if official_path.is_file():
+            return FontSpec(kind="truetype", name=official_path.name, path=official_path.resolve())
+
     path = Path(value)
     if not path.exists():
+        bundled_candidate = _REPOSITORY_ROOT / "assets" / "fonts" / value
+        if bundled_candidate.is_file():
+            return FontSpec(kind="truetype", name=bundled_candidate.name, path=bundled_candidate.resolve())
         raise FileNotFoundError(f"font file does not exist: {path}")
     if not path.is_file():
         raise ValueError(f"font path is not a regular file: {path}")

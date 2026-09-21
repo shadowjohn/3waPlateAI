@@ -46,3 +46,18 @@ def test_template_rejects_out_of_bounds_text_box(
     path = write_json(tmp_path / "template.json", valid_template_document)
     with pytest.raises(ValueError, match="text_box"):
         load_template(path)
+
+
+def test_resolve_taiwan_plate_font(default_template):
+    font = resolve_font("taiwan_plate")
+    assert font.kind == "truetype"
+    assert font.name == "TaiwanPlate-Regular.ttf"
+    assert font.path is not None
+    assert font.path.is_file()
+
+    # Verify rendering with TaiwanPlate font
+    sample = GeneratedPlate("AQ560", "AQ-560", "moto-red-2-3", "moto-red")
+    rendered = render_plate(sample, default_template, font)
+    assert rendered.image_rgb.shape == (96, 320, 3)
+    assert rendered.metadata["rendered_text"] == "AQ-560"
+
