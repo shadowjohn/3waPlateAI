@@ -23,6 +23,34 @@ def test_every_trapezoid_permutation_has_one_canonical_order():
         np.testing.assert_allclose(normalized.points_xy, expected)
 
 
+def test_every_severely_tilted_trapezoid_permutation_has_one_canonical_order():
+    expected = np.array(
+        [[150, 10], [270, 160], [220, 200], [100, 50]],
+        dtype=np.float32,
+    )
+
+    for permutation in itertools.permutations(expected):
+        normalized = normalize_corners(np.asarray(permutation), (380, 240))
+        np.testing.assert_allclose(normalized.points_xy, expected)
+
+
+def test_normalized_corners_marks_only_noncanonical_input_as_reordered():
+    canonical = np.array(
+        [[30, 20], [350, 45], [330, 130], [50, 110]],
+        dtype=np.float32,
+    )
+
+    assert not normalize_corners(canonical, (380, 160)).reordered
+    assert normalize_corners(canonical[[2, 0, 3, 1]], (380, 160)).reordered
+
+
+def test_non_sequence_image_size_uses_stable_invalid_image_size_reason():
+    points = np.array([[30, 20], [350, 45], [330, 130], [50, 110]])
+
+    with pytest.raises(InvalidCornersError, match="invalid_image_size"):
+        normalize_corners(points, None)
+
+
 @pytest.mark.parametrize(
     ("points", "image_size_wh", "reason"),
     [

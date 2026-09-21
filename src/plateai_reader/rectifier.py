@@ -117,9 +117,12 @@ def _validate_rgb_image(image_rgb: np.ndarray) -> tuple[int, int]:
 
 
 def _validate_image_size(image_size_wh: tuple[int, int]) -> tuple[int, int]:
-    if len(image_size_wh) != 2:
+    try:
+        width, height = image_size_wh
+    except (TypeError, ValueError) as error:
+        raise InvalidCornersError("invalid_image_size") from error
+    if isinstance(width, (bool, np.bool_)) or isinstance(height, (bool, np.bool_)):
         raise InvalidCornersError("invalid_image_size")
-    width, height = image_size_wh
     if not isinstance(width, (int, np.integer)) or not isinstance(height, (int, np.integer)):
         raise InvalidCornersError("invalid_image_size")
     if width <= 0 or height <= 0:
