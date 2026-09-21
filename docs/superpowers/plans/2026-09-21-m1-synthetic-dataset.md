@@ -30,7 +30,7 @@
 
 ## Review Focus
 
-1. **Malformed configuration or bundle contract:** unknown/empty character class, duplicate charset symbols, illegal separator position, disabled-only rules, missing CTC blank/distribution semantics, or invalid recognizer batch declarations must fail before use. Tasks 1 and 6 pin these cases.
+1. **Malformed configuration or bundle contract:** unknown/empty character class, duplicate charset symbols, illegal separator position, disabled-only rules, missing CTC blank semantics, or invalid recognizer batch declarations must fail before use. Tasks 1 and 6 pin these cases.
 2. **Unsafe output target:** count zero, a pre-existing output directory, or an output parent that exists as a file must return a stable error without modifying existing content; missing parent directories are created for the requested output. Tasks 4 and 5 pin these cases.
 3. **Unicode filesystem paths:** a Traditional-Chinese output path must generate readable PNG, label, metadata, and summary files. Task 4 pins this case.
 4. **Extreme transform sampling:** maximum configured perspective jitter and glare must still produce finite, clockwise, in-frame corners and a valid `uint8` image. Task 3 pins this case.
@@ -865,12 +865,6 @@ def valid_crop_only_manifest() -> dict[str, object]:
             "dtype": "float32",
             "scale": 0.00392156862745098,
         },
-        "distribution": {
-            "tier": "toy",
-            "intended_use": ["pipeline-validation", "ci"],
-            "production_ready": False,
-            "accuracy_claimed": False,
-        },
         "provenance": {"training_data": "synthetic", "license_reviewed": True},
     }
 ```
@@ -947,9 +941,7 @@ Every schema sets `"$schema": "https://json-schema.org/draft/2020-12/schema"`, r
 
 - [ ] **Step 4: Define the crop-only-capable Model Bundle manifest schema**
 
-Require `schema_version`, `contract_version`, `model_id`, semantic `version`, UTC `created_at`, `capabilities`, `plate_size`, `charset`, `rules`, `components`, `decoder`, `preprocess`, `distribution`, and `provenance`. A crop-only M1 development manifest may declare only a recognizer component; a full bundle that declares `plate-detection` must also provide detector metadata, the fixed four keypoint names, and `rectifier.normalization_strategy: "convex-hull-semantic-v1"`.
-
-The public toy branch of `distribution` requires `tier: "toy"`, both `pipeline-validation` and `ci` intended uses, and literal `false` values for `production_ready` and `accuracy_claimed`. This prevents a functional smoke-test artifact from being represented as a production model.
+Require `schema_version`, `contract_version`, `model_id`, semantic `version`, UTC `created_at`, `capabilities`, `plate_size`, `charset`, `rules`, `components`, `decoder`, `preprocess`, and `provenance`. A crop-only M1 development manifest may declare only a recognizer component; a full bundle that declares `plate-detection` must also provide detector metadata, the fixed four keypoint names, and `rectifier.normalization_strategy: "convex-hull-semantic-v1"`.
 
 Component filenames must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`, preventing separators and `..`. Component hashes use lowercase SHA-256. Tensor entries explicitly name input/output tensors, dtypes, and shapes.
 
@@ -1052,7 +1044,7 @@ python -m pytest
 
 Explain Trainer versus Reader, the Model Bundle boundary, M1's recognizer-crop scope, the built-in Hershey development fallback, and why real plate images and production model weights are excluded from Git.
 
-Include this policy in equivalent clear wording: the repository provides the complete plate synthesis, training, and high-speed inference engine; the committed fixtures and future `toy-sample-bundle` verify that the pipeline runs, but make no production or commercial accuracy claim; production users must generate suitable synthetic data or import a lawfully obtained dataset and train their own bundle.
+Include this policy in equivalent clear wording: the repository provides the complete MIT plate synthesis, training, and high-speed inference engine; committed fixtures verify the code and contracts, but the project publishes no checkpoints, trained weights, ONNX models, TensorRT engines, or Model Bundles. Every user generates suitable synthetic data or imports a lawfully obtained dataset and trains their own bundle.
 
 - [ ] **Step 4: Document output and configuration contracts**
 
@@ -1071,7 +1063,7 @@ State that labels use `relative/path.png<TAB>CANONICAL_TEXT`, configurations are
 
 - [ ] **Step 5: Add third-party and model-storage notices**
 
-List NumPy, OpenCV/opencv-python-headless, Pillow, jsonschema, pytest, and Hypothesis with package name, role, upstream URL, and SPDX license expression. State that the repository's MIT license does not relicense dependencies, external fonts, datasets, or model weights. `models/README.md` directs binary bundles to GitHub Releases, requires `THIRD_PARTY_LICENSES.md` inside each future bundle, and distinguishes the public pipeline-validation-only `toy-sample-bundle` from user-trained production bundles.
+List NumPy, OpenCV/opencv-python-headless, Pillow, jsonschema, pytest, and Hypothesis with package name, role, upstream URL, and SPDX license expression. State that the repository's MIT license does not relicense dependencies, external fonts, datasets, or model weights. `models/README.md` states that no binary model artifact is committed or attached to official releases; it documents local bundle layout and requires `THIRD_PARTY_LICENSES.md` for any bundle users create themselves.
 
 - [ ] **Step 6: Add Python 3.11 CI**
 
