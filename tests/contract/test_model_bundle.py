@@ -135,3 +135,97 @@ def test_v1_manifest_rejects_nonzero_blank_and_static_batch():
     }
     with pytest.raises(DocumentValidationError, match="batch"):
         validate_model_manifest(fixed_batch, SCHEMA, visible_charset_symbol_count=33)
+
+
+def valid_full_manifest() -> dict[str, Any]:
+    manifest = valid_v1_manifest()
+    manifest["capabilities"] = ["crop-recognition", "plate-detection"]
+    manifest["components"]["detector"] = {
+        "file": "detector.onnx", "format": "onnx", "sha256": "4" * 64,
+        "inputs": [{"name": "images", "dtype": "float32", "shape": ["batch", 3, 640, 640]}],
+        "outputs": [{"name": "candidates", "dtype": "float32", "shape": ["batch", 8400, 13]}],
+        "batch": {"mode": "dynamic", "min": 1, "opt": 8, "max": 32},
+        "keypoints": ["left_top", "right_top", "right_bottom", "left_bottom"],
+        "postprocess": {
+            "candidate_format": "cxcywh-confidence-corners-letterbox-px-v1",
+            "preprocess": "opencv-rgb-letterbox-640-v1", "nms": "numpy-nms-v1",
+            "score_threshold": 0.25, "iou_threshold": 0.50, "max_detections": 100,
+        },
+    }
+    manifest["rectifier"] = {"normalization_strategy": "convex-hull-semantic-v1"}
+    manifest["provenance"]["detector_training_report"] = {"file": "detector_report.json", "sha256": "5" * 64}
+    return manifest
+
+
+def test_full_manifest_accepts_exact_detector_contract():
+    validate_model_manifest(valid_full_manifest(), SCHEMA, visible_charset_symbol_count=33)
+
+
+@pytest.mark.parametrize(("path", "value", "message"), [
+    (("components", "detector", "inputs", 0, "name"), "image", "detector.inputs"),
+    (("components", "detector", "inputs", 0, "shape"), [1, 3, 640, 640], "detector.inputs"),
+    (("components", "detector", "outputs", 0, "shape"), ["batch", 8401, 13], "detector.outputs"),
+    (("components", "detector", "outputs", 0, "dtype"), "float16", "detector.outputs"),
+    (("components", "detector", "batch"), {"mode": "fixed", "size": 1}, "detector.batch"),
+    (("components", "detector", "batch", "max"), 16, "detector.batch"),
+    (("components", "detector", "keypoints"), ["right_top", "left_top", "right_bottom", "left_bottom"], "keypoints"),
+    (("components", "detector", "postprocess", "candidate_format"), "xyxy", "postprocess"),
+    (("components", "detector", "postprocess", "preprocess"), "other", "postprocess"),
+    (("components", "detector", "postprocess", "nms"), "torchvision", "postprocess"),
+    (("components", "detector", "postprocess", "score_threshold"), 0.3, "postprocess"),
+    (("components", "detector", "postprocess", "iou_threshold"), 0.45, "postprocess"),
+    (("components", "detector", "postprocess", "max_detections"), 10, "postprocess"),
+    (("components", "detector", "postprocess", "extra"), True, "postprocess"),
+    (("rectifier", "normalization_strategy"), "sort", "rectifier"),
+    (("capabilities",), ["plate-detection"], "capabilities"),
+    (("capabilities",), ["crop-recognition"], "capabilities"),
+])
+def test_full_manifest_rejects_incompatible_detector_contract(path, value, message):
+    manifest = valid_full_manifest()
+    set_path(manifest, path, value)
+    with pytest.raises(DocumentValidationError, match=message):
+        validate_model_manifest(manifest, SCHEMA, visible_charset_symbol_count=33)
+
+
+@pytest.mark.parametrize(("section", "field", "message"), [
+    ("provenance", "detector_training_report", "provenance.detector_training_report"),
+    ("components", "detector", "components.detector"),
+])
+def test_full_manifest_requires_detector_and_report(section, field, message):
+    manifest = valid_full_manifest()
+    del manifest[section][field]
+    with pytest.raises(DocumentValidationError, match=message):
+        validate_model_manifest(manifest, SCHEMA, visible_charset_symbol_count=33)
+
+
+def test_full_manifest_requires_postprocess():
+    manifest = valid_full_manifest()
+    del manifest["components"]["detector"]["postprocess"]
+    with pytest.raises(DocumentValidationError, match="detector.postprocess"):
+        validate_model_manifest(manifest, SCHEMA, visible_charset_symbol_count=33)
+
+
+def test_crop_bundle_hash_validation_does_not_require_optional_onnx(tmp_path, monkeypatch):
+    import builtins
+    import hashlib
+    import json
+    from plateai_shared.bundle import validate_crop_bundle
+    from tests.conftest import V1_CHARSET, V1_RULES
+
+    manifest = valid_v1_manifest()
+    declarations = [manifest["charset"], manifest["rules"],
+                    manifest["components"]["recognizer"], manifest["provenance"]["training_report"]]
+    contents = [V1_CHARSET.read_bytes(), V1_RULES.read_bytes(), b"opaque crop model", b"{}"]
+    for item, content in zip(declarations, contents, strict=True):
+        (tmp_path / item["file"]).write_bytes(content)
+        item["sha256"] = hashlib.sha256(content).hexdigest()
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    original_import = builtins.__import__
+
+    def without_onnx(name, *args, **kwargs):
+        if name == "onnx":
+            raise ImportError("optional ONNX is not installed")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_onnx)
+    assert validate_crop_bundle(tmp_path, SCHEMA) == manifest

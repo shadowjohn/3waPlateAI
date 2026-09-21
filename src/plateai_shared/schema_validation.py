@@ -109,6 +109,16 @@ def validate_model_manifest(
     """Validate schema plus CTC and dynamic-batch cross-field invariants."""
 
     validate_document(document, schema_path)
+    has_detector = "detector" in document["components"]
+    has_detection = "plate-detection" in document["capabilities"]
+    if has_detector != has_detection:
+        raise DocumentValidationError(
+            "capabilities: detector requires crop-recognition and plate-detection"
+        )
+    if not has_detection and "detector_training_report" in document["provenance"]:
+        raise DocumentValidationError(
+            "provenance.detector_training_report: requires plate-detection"
+        )
     if type(visible_charset_symbol_count) is not int or visible_charset_symbol_count < 1:
         raise DocumentValidationError(
             "charset.visible_symbols: visible symbol count must be positive"

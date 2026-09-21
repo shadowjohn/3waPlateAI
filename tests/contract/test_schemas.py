@@ -14,7 +14,7 @@ from plateai_shared.schema_validation import (
 from plateai_shared.rules import load_character_set, load_ruleset
 from plateai_trainer.synthetic.dataset import generate_dataset
 
-from tests.contract.test_model_bundle import SCHEMA, valid_v1_manifest
+from tests.contract.test_model_bundle import SCHEMA, valid_full_manifest, valid_v1_manifest
 
 from tests.conftest import (
     DEFAULT_AUGMENTATION,
@@ -124,43 +124,12 @@ def test_plate_detection_capability_requires_rectifier_contract():
 
 
 def test_detection_manifest_schema_keeps_explicit_rectifier_strategy():
-    manifest = valid_v1_manifest()
-    manifest["capabilities"] = ["crop-recognition", "plate-detection"]
-    manifest["components"]["detector"] = {
-        "file": "detector.onnx",
-        "format": "onnx",
-        "sha256": "3" * 64,
-        "inputs": [
-            {"name": "image", "dtype": "float32", "shape": ["batch", 3, 640, 640]}
-        ],
-        "outputs": [
-            {"name": "poses", "dtype": "float32", "shape": ["batch", "detections", 12]}
-        ],
-        "keypoints": ["left_top", "right_top", "right_bottom", "left_bottom"],
-    }
-    manifest["rectifier"] = {"normalization_strategy": "convex-hull-semantic-v1"}
-
+    manifest = valid_full_manifest()
     assert validate_document(manifest, SCHEMAS / "model_manifest.schema.json") is None
 
 
 def test_full_manifest_pins_detector_keypoints_and_corner_normalization():
-    manifest = valid_v1_manifest()
-    manifest["capabilities"] = ["crop-recognition", "plate-detection"]
-    manifest["components"]["detector"] = {
-        "file": "detector.onnx",
-        "format": "onnx",
-        "sha256": "3" * 64,
-        "inputs": [
-            {"name": "image", "dtype": "float32", "shape": ["batch", 3, 640, 640]}
-        ],
-        "outputs": [
-            {"name": "poses", "dtype": "float32", "shape": ["batch", "detections", 12]}
-        ],
-        "keypoints": ["left_top", "right_top", "right_bottom", "left_bottom"],
-    }
-    manifest["rectifier"] = {
-        "normalization_strategy": "convex-hull-semantic-v1"
-    }
+    manifest = valid_full_manifest()
     validate_model_manifest(
         manifest,
         SCHEMAS / "model_manifest.schema.json",
