@@ -101,3 +101,11 @@ This file is an append-only record of important implementation decisions, local 
 - Final review added severe-tilt permutation coverage, `reordered` metadata coverage, and stable `invalid_image_size` handling for a non-sequence image-size argument.
 - Full local verification: `.venv\Scripts\python.exe -m pytest -q` completed with `89 passed in 25.90s`; source distribution and wheel builds succeeded and included `plateai_reader`; `.venv\Scripts\python.exe -m pip check` reported no broken requirements.
 - Not verified: M3b detector training/data/keypoint output, detector ONNX compatibility, GPU behavior, real images, field accuracy, full Reader decoding, browser/API/IIS/DB, remote CI, or production deployment. No detector artifact, model weight, or real plate image was added.
+
+## 2026-09-21 - M3b native multi-plate pose-detector design approved
+
+- M3b is approved as a native-PyTorch, single-class, anchor-free YOLO-style pose detector with a lightweight CSP-Darknet-tiny-style P3/P4/P5 path. It uses no Ultralytics code, package, model, or export pipeline; repository-owned detector code retains the project source-only boundary while normal third-party runtime notices still apply.
+- The detector accepts RGB source images through one OpenCV-golden 640x640 letterbox contract and supports multiple plates per image. Its fixed-spatial ONNX output is dynamic-batch `[batch,8400,13]`: bbox, confidence, and four semantic corners for every candidate; NMS remains a deterministic pure-NumPy Reader operation.
+- M3b composite data will place one to three M1-rendered v1 plates per user-authorized local background, preserving exact per-instance semantic corners and bbox GT. Background identity/hashes and disjoint train/validation background sets are required; no background, real plate image, dataset, checkpoint, or ONNX file is committed.
+- Reader inverse letterboxing must transform bbox and all eight corner values, then clip emitted points to discrete `[0,width-1]` and `[0,height-1]` bounds before M3a. A rejected M3a instance cannot prevent other NMS survivors from rectifying.
+- Formal spec: `docs/superpowers/specs/2026-09-21-m3b-native-pose-detector-design.md`. Implementation, model training, ONNX export, TensorRT benchmark, real-image accuracy, and deployment remain unstarted and unverified.
