@@ -1,6 +1,6 @@
 # Local model workspace
 
-This directory is documentation only. No checkpoint, trained weight, ONNX file, TensorRT engine, or Model Bundle is committed here or attached to an official 3waPlateAI release.
+This directory is documentation only. No checkpoint, trained weight, ONNX file, TensorRT engine, dataset, run, or Model Bundle is committed here or attached to an official 3waPlateAI release. Local v1 bundles are published only after native-versus-ONNX parity and hash verification.
 
 Train and tune locally, then create an immutable directory outside Git such as:
 

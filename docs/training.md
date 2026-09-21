@@ -1,6 +1,21 @@
 # Synthetic dataset and training guide
 
-M1 builds deterministic recognizer-crop datasets on CPU. It does not train or export a model yet; later training code will consume the same labels, charset, rule, and Model Bundle contracts.
+M1 builds deterministic recognizer-crop datasets on CPU. M2 adds optional local PyTorch CTC training and ONNX export.
+
+## Local v1 training and export
+
+Install the isolated training stack, generate train/validation sets with different generator seeds, then use paths that do not already exist:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements\py311.training.lock.txt
+.\.venv\Scripts\python.exe -m pip install --no-deps -e ".[test,training]"
+.\.venv\Scripts\plateai-train --train out\train-seed-42 --validation out\validation-seed-43 --output runs\v1-cpu --epochs 10 --batch-size 32 --seed 42
+.\.venv\Scripts\plateai-export --checkpoint runs\v1-cpu\best.pt --report runs\v1-cpu\report.json --output models\bundles\v1-local
+```
+
+v1 has 33 visible symbols (`0,1,2,3,5,6,7,8,9,A-Z` without `I` or `O`), `blank_index = 0`, and 34 logits classes. The exact input is `[batch, 1, 64, 160]`: Pillow 12.3.0 `RGB.convert("L")`, bilinear resize to 64x152, raw-white four-pixel side letterbox, then `float32 / 255.0`.
+
+Export runs ONNX checker plus batch-one and batch-two native-versus-ONNX parity (logits and greedy CTC text) before it atomically publishes a hash-verified local bundle. Datasets, checkpoints, ONNX files, runs, and bundles are local, ignored, and not committed. Synthetic metrics are not field accuracy.
 
 ## Generate a dataset
 

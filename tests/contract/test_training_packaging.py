@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from importlib import metadata
+from pathlib import Path
 
 from packaging.requirements import Requirement
 
@@ -23,3 +24,11 @@ def test_installed_distribution_exposes_the_isolated_training_extra():
         "onnxruntime": "==1.30.0",
         "onnxscript": "==0.7.2",
     }
+
+
+def test_training_docs_publish_the_v1_input_and_onnx_parity_contract():
+    text = (Path(__file__).resolve().parents[2] / "docs/training.md").read_text(encoding="utf-8")
+    assert "[batch, 1, 64, 160]" in text
+    assert "blank_index = 0" in text
+    assert "native-versus-ONNX parity" in text
+    assert "not committed" in text

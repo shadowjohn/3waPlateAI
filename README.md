@@ -49,6 +49,10 @@ Generation refuses to overwrite an existing output directory. Publication is tra
 
 The four PNG files under `tests/fixtures/synthetic/` are algorithmically generated toy inputs used only to prove that code and contracts work. They contain no real vehicle image or identifying plate data and make no accuracy claim.
 
+## M2 local recognition
+
+The optional `training` extra provides a local PyTorch CTC trainer and ONNX exporter for the v1 crop contract. It uses Pillow-golden grayscale preprocessing, 80 CTC timesteps, blank index zero, and validates native-versus-ONNX parity before publishing an ignored local bundle. See `docs/training.md`; datasets, weights, ONNX files, runs, and bundles are not committed.
+
 ## Train your own model
 
 Use the public generator, import only lawfully obtained datasets, and train a bundle suitable for your own domain. Real plate photographs, production data, fonts without redistribution permission, and trained artifacts do not belong in this repository. See [the training and dataset guide](docs/training.md) and [the local model policy](models/README.md).
