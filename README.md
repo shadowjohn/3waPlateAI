@@ -4,7 +4,7 @@
 
 The public repository is deliberately source-only. It contains the code, schemas, configuration, documentation, and four harmless synthetic CI fixtures, but official repositories and releases publish **no checkpoints, trained weights, ONNX models, TensorRT engines, or Model Bundles**. Data rights, legal review, compute, training, tuning, and maintenance of every resulting model remain with the user.
 
-M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC training and ONNX export, and M3a provides the deterministic four-corner rectifier that connects them. Pose detection, complete Reader inference, and serving remain later milestones; see the approved [design specification](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md).
+M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC training and ONNX export, M3a provides the deterministic four-corner rectifier, and M3b provides a local native pose-detector workflow. Complete Reader inference and serving remain later milestones; see the approved [design specification](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md).
 
 ## What is here
 
@@ -12,7 +12,7 @@ M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC tr
 |---|---|---|
 | `plateai_shared` | Immutable rules and JSON contracts shared across training and inference | Available |
 | `plateai_trainer.synthetic` | Rule sampling, clean rendering, deterministic augmentation, and transactional dataset output | Available |
-| `plateai_reader` | Four-corner geometric normalization; detector, batched recognition, and constrained decoding follow later | M3a rectifier available |
+| `plateai_reader` | Four-corner geometric normalization and local detector postprocessing; batched recognition and constrained decoding follow later | M3a rectifier and M3b detector handoff available |
 | Model Bundle | Hash-verified model, charset, rule, tensor, batch, decoder, and rectifier contract | Schema available; no bundle published |
 
 ## Quick start
@@ -58,6 +58,12 @@ The optional `training` extra provides a local PyTorch CTC trainer and ONNX expo
 `plateai_reader.rectifier` accepts a `uint8` RGB source image plus four finite, in-frame corners in any order. It validates the convex hull, rejects degenerate or orientation-ambiguous geometry, uses the long plate edges to determine top/bottom and left/right semantics, then returns a canonical RGB `160×380` crop for M2.
 
 The only warp targets discrete destination pixels `(0,0)`, `(379,0)`, `(379,159)`, and `(0,159)` with OpenCV bilinear interpolation and a white constant border. The identity regression verifies every outer output pixel matches its source coordinate, so this contract does not hide last-row or last-column border mixing. M3a contains no detector data, detector training, detector weight, or detector ONNX export; those are M3b work.
+
+## M3b local pose detection
+
+M3b is a local-only workflow for a user-provided, lawfully usable background manifest. The native detector accepts a 640x640 OpenCV RGB letterbox input and emits pre-NMS candidates shaped `[batch,8400,13]`. After deterministic NMS, each retained four-corner detection is independently passed to M3a's fixed RGB `380x160` crop rectifier, so one invalid pose does not prevent other retained detections from reaching the recognizer boundary.
+
+Run composition, detector training, and full-bundle export from an installed training environment as documented in [the detector workflow](docs/training.md#local-m3b-detector-workflow). Source-tree acceptance deliberately includes no bundled background, detector weight, ONNX artifact, TensorRT benchmark, browser integration, or production recognition metric.
 
 ## Train your own model
 

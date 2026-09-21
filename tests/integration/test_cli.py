@@ -3,10 +3,16 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from plateai_trainer.synthetic import cli
+
+
+def venv_scripts() -> Path:
+    return Path(sys.executable).parent
 
 
 def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -90,3 +96,13 @@ def test_default_config_path_falls_back_to_installed_data(monkeypatch, tmp_path)
     monkeypatch.setattr(cli, "_REPOSITORY_ROOT", checkout_root)
     monkeypatch.setattr(cli, "_INSTALL_DATA_ROOT", installed_root)
     assert cli._default_config_path("configs/charsets/tw_plate_latin_v1.txt") == asset
+
+
+@pytest.mark.parametrize(
+    "executable",
+    ("plateai-compose.exe", "plateai-detect-train.exe", "plateai-detect-export.exe"),
+)
+def test_detector_cli_help_is_installed(executable):
+    result = subprocess.run([venv_scripts() / executable, "--help"], capture_output=True, text=True)
+    assert result.returncode == 0
+    assert "usage:" in result.stdout.lower()

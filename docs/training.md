@@ -17,6 +17,20 @@ v1 has 33 visible symbols (`0,1,2,3,5,6,7,8,9,A-Z` without `I` or `O`), `blank_i
 
 Export runs ONNX checker plus batch-one and batch-two native-versus-ONNX parity (logits and greedy CTC text) before it atomically publishes a hash-verified local bundle. Datasets, checkpoints, ONNX files, runs, and bundles are local, ignored, and not committed. Synthetic metrics are not field accuracy.
 
+## Local M3b detector workflow
+
+Use only a legal, user-provided background manifest whose images you are authorized to process. From an installed training environment, use separate local train and validation manifests/background sets, choose output paths that do not already exist, and run this end-to-end local-only sequence:
+
+```powershell
+plateai-compose --background-manifest <local-manifest.json> --count 1000 --seed 42 --output out/detection-train
+plateai-detect-train --train out/detection-train --validation out/detection-validation --output runs/detection-v1
+plateai-detect-export --recognizer-bundle models/bundles/v1-local --checkpoint runs/detection-v1/best.pt --report runs/detection-v1/report.json --output models/bundles/v1-full-local
+```
+
+`plateai-compose` creates one-to-three-plate composite records with source provenance; `plateai-detect-train` trains the native local detector; and `plateai-detect-export` validates and publishes a local full bundle. The detector input is a 640x640 OpenCV RGB letterbox and its pre-NMS output is `[batch,8400,13]`. Reader postprocessing handles each retained four-corner detection independently and sends it to M3a's RGB `380x160` crop rectifier.
+
+This is source-tree and local-package acceptance only. No background, weight, checkpoint, ONNX artifact, TensorRT benchmark, browser integration, remote CI result, real-image metric, or production recognition metric is bundled or verified by this repository.
+
 ## Generate a dataset
 
 From an installed development environment:
