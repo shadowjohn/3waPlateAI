@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a deterministic command-line generator that emits synthetic Taiwan-style plate crops, PaddleOCR recognition labels, transform metadata, and validated shared contracts without requiring a GPU.
+**Goal:** Build a deterministic command-line generator that emits synthetic Taiwan-style plate crops, PaddleOCR recognition labels, transform metadata, validated shared contracts, and a tiny harmless fixture set for public CI without requiring a GPU.
 
 **Architecture:** `plateai_shared` owns immutable rules and cross-module contracts. `plateai_trainer.synthetic` composes rule generation, clean rendering, deterministic augmentation, and transactional dataset writing. Configuration stays in versioned JSON files; M1 produces recognizer crops only and leaves model training, pose detection, Reader runtime, and the website demo to separate plans.
 
@@ -22,6 +22,7 @@
 - The same run seed, sample index, configuration files, and dependency lock must reproduce the same plate strings and transform parameters.
 - Deterministic output files must not contain wall-clock timestamps, UUIDs, absolute repository paths, or staging-directory names.
 - Real vehicle images and personally identifying plate data must never enter the repository or M1 fixtures.
+- Generated datasets remain ignored except for the intentionally committed, manifest-backed files under `tests/fixtures/synthetic/`.
 - Do not commit a TTF/OTF file unless redistribution permission and its license notice are committed in the same change.
 - M1 may emit PaddleOCR-style labels but must not depend on PaddleOCR, Ultralytics, CUDA, ONNX Runtime, or TensorRT.
 - Generated datasets, local environments, caches, weights, and local benchmark outputs stay ignored by Git.
@@ -29,7 +30,7 @@
 
 ## Review Focus
 
-1. **Malformed configuration or bundle contract:** unknown/empty character class, duplicate charset symbols, illegal separator position, disabled-only rules, missing CTC blank semantics, or invalid recognizer batch declarations must fail before use. Tasks 1 and 6 pin these cases.
+1. **Malformed configuration or bundle contract:** unknown/empty character class, duplicate charset symbols, illegal separator position, disabled-only rules, missing CTC blank/distribution semantics, or invalid recognizer batch declarations must fail before use. Tasks 1 and 6 pin these cases.
 2. **Unsafe output target:** count zero, a pre-existing output directory, or an output parent that exists as a file must return a stable error without modifying existing content; missing parent directories are created for the requested output. Tasks 4 and 5 pin these cases.
 3. **Unicode filesystem paths:** a Traditional-Chinese output path must generate readable PNG, label, metadata, and summary files. Task 4 pins this case.
 4. **Extreme transform sampling:** maximum configured perspective jitter and glare must still produce finite, clockwise, in-frame corners and a valid `uint8` image. Task 3 pins this case.
@@ -90,6 +91,9 @@
 - `tests/unit/test_dataset.py` — layout, labels, metadata, Unicode paths, and cleanup.
 - `tests/contract/test_schemas.py` — valid and invalid JSON Schema examples.
 - `tests/integration/test_cli.py` — module CLI success and stable error behavior.
+- `tests/contract/test_toy_fixtures.py` — committed synthetic fixture manifest, hashes, labels, and image decoding.
+- `tests/fixtures/synthetic/manifest.json` — provenance and SHA-256 for the public toy fixtures.
+- `tests/fixtures/synthetic/*.png` — four deterministic, synthetic-only 320×96 RGB fixtures.
 - `.github/workflows/test.yml` — Python 3.11 install, tests, package build, and three-image smoke generation.
 - `docs/training.md` — dataset layout, reproducibility, font policy, and configuration reference.
 - `models/README.md` — why weights stay out of Git and what future bundles contain.
@@ -861,6 +865,12 @@ def valid_crop_only_manifest() -> dict[str, object]:
             "dtype": "float32",
             "scale": 0.00392156862745098,
         },
+        "distribution": {
+            "tier": "toy",
+            "intended_use": ["pipeline-validation", "ci"],
+            "production_ready": False,
+            "accuracy_claimed": False,
+        },
         "provenance": {"training_data": "synthetic", "license_reviewed": True},
     }
 ```
@@ -937,7 +947,9 @@ Every schema sets `"$schema": "https://json-schema.org/draft/2020-12/schema"`, r
 
 - [ ] **Step 4: Define the crop-only-capable Model Bundle manifest schema**
 
-Require `schema_version`, `contract_version`, `model_id`, semantic `version`, UTC `created_at`, `capabilities`, `plate_size`, `charset`, `rules`, `components`, `decoder`, `preprocess`, and `provenance`. A crop-only M1 development manifest may declare only a recognizer component; a full bundle that declares `plate-detection` must also provide detector metadata, the fixed four keypoint names, and `rectifier.normalization_strategy: "convex-hull-semantic-v1"`.
+Require `schema_version`, `contract_version`, `model_id`, semantic `version`, UTC `created_at`, `capabilities`, `plate_size`, `charset`, `rules`, `components`, `decoder`, `preprocess`, `distribution`, and `provenance`. A crop-only M1 development manifest may declare only a recognizer component; a full bundle that declares `plate-detection` must also provide detector metadata, the fixed four keypoint names, and `rectifier.normalization_strategy: "convex-hull-semantic-v1"`.
+
+The public toy branch of `distribution` requires `tier: "toy"`, both `pipeline-validation` and `ci` intended uses, and literal `false` values for `production_ready` and `accuracy_claimed`. This prevents a functional smoke-test artifact from being represented as a production model.
 
 Component filenames must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`, preventing separators and `..`. Component hashes use lowercase SHA-256. Tensor entries explicitly name input/output tensors, dtypes, and shapes.
 
@@ -996,13 +1008,35 @@ git commit -m "feat: publish M1 data and model contracts"
 - Create: `models/README.md`
 - Create: `THIRD_PARTY_NOTICES.md`
 - Create: `.github/workflows/test.yml`
+- Create: `tests/contract/test_toy_fixtures.py`
+- Create: `tests/fixtures/synthetic/manifest.json`
+- Create: `tests/fixtures/synthetic/000000.png`
+- Create: `tests/fixtures/synthetic/000001.png`
+- Create: `tests/fixtures/synthetic/000002.png`
+- Create: `tests/fixtures/synthetic/000003.png`
 - Modify: `.gitignore`
 
 **Interfaces:**
 - Consumes: the completed CLI and tests.
-- Produces: reproducible setup/generation instructions and a Linux Python 3.11 CI gate.
+- Produces: reproducible setup/generation instructions, a manifest-backed four-image synthetic fixture set, and a Linux Python 3.11 CI gate.
 
-- [ ] **Step 1: Write the README quick start and scope boundary**
+- [ ] **Step 1: Write the failing committed-fixture contract test**
+
+Create `tests/contract/test_toy_fixtures.py` so it loads `tests/fixtures/synthetic/manifest.json`, requires exactly four unique entries, verifies every relative path stays inside the fixture directory, checks every file SHA-256, decodes each image with Pillow as RGB 320×96, and verifies canonical/display labels contain only the configured visible charset plus the decorative hyphen.
+
+Run: `python -m pytest tests/contract/test_toy_fixtures.py -v`
+
+Expected: FAIL because the fixture manifest and images do not exist.
+
+- [ ] **Step 2: Generate and commit the harmless synthetic fixtures**
+
+Generate four identity-profile images with seeds `42000`, `42001`, `42002`, and `42003` into a temporary directory. Copy only their PNG bytes into `tests/fixtures/synthetic/`, then write a stable `manifest.json` containing `schema_version`, `generator_version`, `synthetic_only: true`, and one entry per image with relative path, seed, canonical, display, rule ID, and lowercase SHA-256. Do not include timestamps or absolute paths.
+
+Run: `python -m pytest tests/contract/test_toy_fixtures.py -v`
+
+Expected: PASS for four fixtures.
+
+- [ ] **Step 3: Write the README quick start and scope boundary**
 
 Document these commands verbatim:
 
@@ -1016,9 +1050,11 @@ python -m plateai_trainer.synthetic generate --count 100 --seed 42 --output out/
 python -m pytest
 ```
 
-Explain Trainer versus Reader, the Model Bundle boundary, M1's recognizer-crop scope, the built-in Hershey development fallback, and why real plate images and model weights are excluded from Git.
+Explain Trainer versus Reader, the Model Bundle boundary, M1's recognizer-crop scope, the built-in Hershey development fallback, and why real plate images and production model weights are excluded from Git.
 
-- [ ] **Step 2: Document output and configuration contracts**
+Include this policy in equivalent clear wording: the repository provides the complete plate synthesis, training, and high-speed inference engine; the committed fixtures and future `toy-sample-bundle` verify that the pipeline runs, but make no production or commercial accuracy claim; production users must generate suitable synthetic data or import a lawfully obtained dataset and train their own bundle.
+
+- [ ] **Step 4: Document output and configuration contracts**
 
 In `docs/training.md`, show the exact output tree and field purpose:
 
@@ -1033,11 +1069,11 @@ out/demo/
 
 State that labels use `relative/path.png<TAB>CANONICAL_TEXT`, configurations are immutable inputs to a run, and reproducibility covers strings and sampled transform parameters under the locked dependency set. Document how `--font /path/to/font.ttf` works and that redistributable font files require their own notice.
 
-- [ ] **Step 3: Add third-party and model-storage notices**
+- [ ] **Step 5: Add third-party and model-storage notices**
 
-List NumPy, OpenCV/opencv-python-headless, Pillow, jsonschema, pytest, and Hypothesis with package name, role, upstream URL, and SPDX license expression. State that the repository's MIT license does not relicense dependencies, external fonts, datasets, or model weights. `models/README.md` directs binary bundles to GitHub Releases and requires `THIRD_PARTY_LICENSES.md` inside each future bundle.
+List NumPy, OpenCV/opencv-python-headless, Pillow, jsonschema, pytest, and Hypothesis with package name, role, upstream URL, and SPDX license expression. State that the repository's MIT license does not relicense dependencies, external fonts, datasets, or model weights. `models/README.md` directs binary bundles to GitHub Releases, requires `THIRD_PARTY_LICENSES.md` inside each future bundle, and distinguishes the public pipeline-validation-only `toy-sample-bundle` from user-trained production bundles.
 
-- [ ] **Step 4: Add Python 3.11 CI**
+- [ ] **Step 6: Add Python 3.11 CI**
 
 Create one Ubuntu workflow triggered by pushes and pull requests. It must:
 
@@ -1056,7 +1092,7 @@ Create one Ubuntu workflow triggered by pushes and pull requests. It must:
 
 Do not upload generated plates as public CI artifacts in M1.
 
-- [ ] **Step 5: Run fresh-environment verification**
+- [ ] **Step 7: Run fresh-environment verification**
 
 From the repository root:
 
@@ -1091,10 +1127,10 @@ PY
 
 Expected: tests and build PASS, labels match, both runs contain 100 valid RGB PNG files, and the script prints `M1 verification OK`.
 
-- [ ] **Step 6: Commit the M1 documentation and CI gate**
+- [ ] **Step 8: Commit the M1 documentation, fixtures, and CI gate**
 
 ```bash
-git add README.md docs/training.md models/README.md THIRD_PARTY_NOTICES.md .github/workflows/test.yml .gitignore
+git add README.md docs/training.md models/README.md THIRD_PARTY_NOTICES.md .github/workflows/test.yml .gitignore tests/contract/test_toy_fixtures.py tests/fixtures/synthetic
 git commit -m "docs: add M1 usage and verification workflow"
 ```
 
