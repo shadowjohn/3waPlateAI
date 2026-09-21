@@ -30,6 +30,7 @@ The project is successful when it can:
 6. Report exact-plate accuracy, character accuracy, latency distribution, and failure categories.
 7. Run Reader without the full PaddleOCR detection pipeline.
 8. Keep real evaluation images and personally identifying plate data out of the public repository.
+9. Let a public clone verify the pipeline with committed synthetic fixtures and, after the full Reader exists, a clearly marked toy Model Bundle.
 
 ## 3. Non-goals
 
@@ -42,6 +43,7 @@ The first implementation does not:
 - build the 3wa.tw demonstration page;
 - package third-party tools under the project's MIT license;
 - optimize TensorRT before a correct ONNX baseline exists.
+- represent a toy fixture or toy Model Bundle as evidence of commercial recognition accuracy.
 
 ## 4. Architectural decisions
 
@@ -331,6 +333,24 @@ Original 3waPlateAI code is MIT. That does not relicense external fonts, dataset
 
 Each releasable bundle includes third-party notices and provenance. CI will eventually run dependency and artifact license checks. Any component with incompatible, unclear, or commercial-use-restricted terms remains optional and is not included in a public release.
 
+### 14.1 Public distribution profile
+
+The public repository distributes the complete original MIT source for Trainer, Reader, the synthetic engine, constrained decoder, contracts, and benchmarks.
+
+It also commits a small deterministic fixture set under `tests/fixtures/synthetic/`. Every fixture is generated entirely by this project, contains no observed vehicle identifier, and has a manifest recording generator version, seed, canonical label, and SHA-256. These fixtures exist only to keep unit and integration tests runnable from a clean clone.
+
+After detector, recognizer, and Reader integration exist, GitHub Releases may include a lightweight `toy-sample-bundle`. It must execute the real inference contract, but it is trained only enough to verify installation and pipeline wiring. It is not a production accuracy artifact.
+
+Every toy bundle manifest must declare:
+
+- `distribution.tier: "toy"`;
+- `distribution.intended_use` containing `pipeline-validation` and `ci`;
+- `distribution.production_ready: false`;
+- `distribution.accuracy_claimed: false`;
+- synthetic-only training provenance and complete third-party notices.
+
+Commercial-grade datasets, real plate imagery, and production-trained weights are not distributed by default. README must state that the project provides the synthesis, training, and high-speed inference engine, while production accuracy requires users to generate suitable synthetic data or import a lawfully obtained dataset and train their own bundle.
+
 ## 15. Milestones
 
 ### M1 — Runnable synthetic recognizer dataset
@@ -344,6 +364,7 @@ Deliver:
 - clean plus configurable photometric and geometric augmentation;
 - PaddleOCR-style recognition labels and JSONL metadata;
 - character-set, rule, and Model Bundle schemas;
+- a small manifest-backed synthetic toy fixture set for CI;
 - unit and property tests;
 - concise setup and generation documentation.
 
@@ -370,7 +391,7 @@ Generate or label detector data, train the pose detector, evaluate boxes and cor
 
 ### M4 — High-speed Reader
 
-Load full bundles, run the end-to-end pipeline, add constrained decoding, implement manifest-driven multi-plate batching, benchmark providers and precision modes, and expose CLI/library interfaces.
+Load full bundles, run the end-to-end pipeline, add constrained decoding, implement manifest-driven multi-plate batching, benchmark providers and precision modes, expose CLI/library interfaces, and publish a synthetic-only `toy-sample-bundle` for pipeline validation.
 
 ### M5 — API and 3wa showroom
 
