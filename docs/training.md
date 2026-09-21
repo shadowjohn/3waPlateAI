@@ -107,11 +107,58 @@ A run consumes four versioned inputs:
 
 Override them with `--charset`, `--rules`, `--template`, and `--augmentation`. Treat configuration files as immutable inputs to a run. Their SHA-256 values are recorded in the output; edit by creating a new versioned file rather than mutating the history of an established dataset.
 
+### Motorcycle colour profiles
+
+The default remains the white-background private-passenger profile required by
+the current M2/M4 contract. It does not infer a vehicle class from arbitrary
+plate text. To generate a mixed motorcycle visual dataset, use the matching
+rule and multi-template files below; the rule's `plate_type` selects the colour
+and dimensions before rendering:
+
+```powershell
+.\.venv\Scripts\plateai-generate generate `
+  --charset configs/charsets/tw_new_style_private_passenger_v1.txt `
+  --rules configs/plate_rules/tw_motorcycle_colours_v1.json `
+  --template configs/plate_templates/tw_motorcycle_colours_v1.json `
+  --output out/motorcycle-colours
+```
+
+The bundled profiles represent ordinary heavy motorcycles as white/black
+260×140, 250–550cc large heavy motorcycles as yellow/black 300×150, 550cc+
+large heavy motorcycles as red/white 300×150, and 50cc light motorcycles as
+green/white 260×140. These category colours and nominal sizes follow the
+Highway Bureau's coding table; the RGB values and the bundled font remain
+visual approximations, not calibrated manufacturing specifications.
+
+The selector is strict: a motorcycle rule whose `plate_type` lacks a template
+fails atomically rather than silently falling back to a white plate. A normal,
+single-template config still applies that one template to every rule so current
+custom workflows remain compatible. These variable-size/type outputs are for
+visuals and later multi-profile work; do not feed them to the current M2/M4
+private-passenger 380×160 recognizer trainer.
+
 The same run seed, sample index, input files, and `requirements/py311.lock.txt` reproduce the same strings, sampled transform parameters, metadata, and encoded images. Reproducibility outside that dependency lock is not promised.
 
 ## Fonts
 
 Without `--font`, the renderer uses the bundled, unmodified `NotoSansMono[wdth,wght].ttf` at weight 700 and width 62. The font is covered by SIL OFL-1.1; its SHA-256 and complete license text are retained in `THIRD_PARTY_NOTICES.md` and `assets/fonts/OFL.txt`. It is a legal visual approximation for the default new-style private-passenger profile, not an official Taiwan number-plate font.
+
+For training data that should use the project-bundled Taiwan plate face, pass
+`--font taiwan_plate` (or `--font official`). The run records
+`TaiwanPlate-Regular.ttf` and its SHA-256 in `generation_config.json` and
+per-image renderer metadata. The face was built from the checked-in Highway
+Bureau reference material by `tools/build_plate_font.py`; it is intended for
+local synthesis and visual comparison, not a representation that the Highway
+Bureau distributes this font as a product or grants general redistribution
+rights for derived materials.
+
+```powershell
+.\.venv\Scripts\plateai-generate generate `
+  --count 10000 `
+  --seed 42 `
+  --font taiwan_plate `
+  --output out/train-taiwan-plate-font
+```
 
 Supply a local TrueType or OpenType file when needed:
 

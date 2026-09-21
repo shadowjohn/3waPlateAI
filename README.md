@@ -1,117 +1,112 @@
 # 3waPlateAI
 
-3waPlateAI is a community-first, MIT-licensed toolkit for Taiwan-style license-plate synthesis, training contracts, and high-speed reading infrastructure.
+3waPlateAI 是一套用於台灣車牌風格合成、訓練契約與高速辨識流程的 MIT 授權工具組。
 
-The public repository is deliberately source-only. It contains the code, schemas, configuration, documentation, and four harmless synthetic CI fixtures, but official repositories and releases publish **no checkpoints, trained weights, ONNX models, TensorRT engines, or Model Bundles**. Data rights, legal review, compute, training, tuning, and maintenance of every resulting model remain with the user.
+本公開儲存庫刻意維持為**純原始碼**：提供程式、設定、JSON Schema、文件與四張無害的合成 CI fixture，但不發布 checkpoint、訓練權重、ONNX 模型、TensorRT engine 或 Model Bundle。資料權利、法規審查、訓練算力、模型調校與後續維護均由使用者負責。
 
-M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC training and ONNX export, M3a provides the deterministic four-corner rectifier, M3b provides a local native pose-detector workflow, and M4 provides the local full-bundle Reader core. Benchmark reporting and serving remain later work; see the approved [design specification](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md).
+M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓練與 ONNX 匯出；M3a 提供確定性的四角點校正；M3b 提供本機原生姿態偵測工作流；M4 提供本機完整 Bundle Reader 核心。效能基準、服務化與正式部署仍屬後續工作；詳細設計請見[設計規格](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md)。
 
-## What is here
+## 目前內容
 
-| Area | Responsibility | Delivery status |
-|---|---|---|
-| `plateai_shared` | Immutable rules and JSON contracts shared across training and inference | Available |
-| `plateai_trainer.synthetic` | Rule sampling, clean rendering, deterministic augmentation, and transactional dataset output | Available |
-| `plateai_reader` | Validated local ONNX sessions, detector postprocessing, rectification, manifest-driven recognition batching, and constrained CTC decoding | M4 local Reader core available; no model bundle published |
-| Model Bundle | Hash-verified model, charset, rule, tensor, batch, decoder, and rectifier contract | Schema available; no bundle published |
+| 區域 | 職責 | 狀態 |
+| --- | --- | --- |
+| `plateai_shared` | 訓練與推論共用的不可變規則、字元集與 JSON 契約 | 可用 |
+| `plateai_trainer.synthetic` | 規則抽樣、乾淨渲染、確定性增強與交易式資料輸出 | 可用 |
+| `plateai_reader` | 已驗證的本機 ONNX session、偵測後處理、校正、批次辨識與受規則限制的 CTC 解碼 | M4 Reader 核心可用，未附模型 Bundle |
+| Model Bundle | 模型、字元集、規則、張量、批次、解碼與校正的雜湊驗證契約 | Schema 可用，未發布 Bundle |
 
-## Quick start
+## 快速開始
 
-CPython 3.11 is the supported development and CI runtime.
+開發與 CI 支援 CPython 3.11。
 
-### Windows one-command build
+### Windows 一鍵建置
 
-From PowerShell, run:
+在 PowerShell 執行：
 
 ```powershell
 .\build.ps1
 ```
 
-`build.ps1` creates the ignored `.venv` with CPython 3.11 (using `uv` when it
-is available, otherwise the `py -3.11` launcher), installs the exact locked
-training/test dependencies, runs the complete test suite, builds `dist/`,
-force-installs the newly built wheel, verifies `plateai-read --help`, runs the
-three-image installed-package smoke generation, and finishes with `pip check`.
-`build.bat` is a cmd/double-click wrapper for the same command.
+`build.ps1` 會建立被忽略的 CPython 3.11 `.venv`（優先使用 `uv`，否則使用 `py -3.11`）、安裝鎖定的訓練與測試依賴、執行完整測試、建立 `dist/`、強制安裝剛建立的 wheel、驗證 `plateai-read --help`、執行三張圖的已安裝套件合成 smoke，最後執行 `pip check`。`build.bat` 是可由 cmd 或雙擊呼叫的包裝器。
 
-Useful variants are `.\build.ps1 -BootstrapOnly` to create/update the local
-environment only, `.\build.ps1 -SkipTests`, `.\build.ps1 -SkipPackage`, and
-`.\build.ps1 -RecreateVenv` when the existing `.venv` is not CPython 3.11.
-`-RecreateVenv` removes only the ignored `.venv`; source, datasets, model
-artifacts, and other output paths are untouched. The build produces Python
-package artifacts only; it never trains, downloads, or publishes model files.
+常用選項包括 `-BootstrapOnly`（只建立或更新環境）、`-SkipTests`、`-SkipPackage`，以及 `.venv` 不符合 CPython 3.11 時的 `-RecreateVenv`。後者只會移除被忽略的 `.venv`，不會碰觸原始碼、資料集、模型或其他輸出路徑。建置只產生 Python 套件產物，不會訓練、下載或發布模型。
 
-### Manual setup
+### 手動建立環境
 
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements/py311.lock.txt
 python -m pip install --no-deps -e .
-python -m plateai_trainer.synthetic generate --count 100 --seed 42 --output out/demo
+plateai-generate generate --count 100 --seed 42 --output out\demo
 python -m pytest
 ```
 
-The equivalent installed command is:
+生成器拒絕覆寫既有輸出目錄。輸出採交易式發布：失敗時只清除自己建立的暫存目錄，不會移除不相干檔案。
 
-```bash
-plateai-generate generate --count 100 --seed 42 --output out/demo
-```
+## M1 合成車牌資料
 
-Generation refuses to overwrite an existing output directory. Publication is transactional: a failed run removes its own partial directory and leaves unrelated files untouched.
+- 預設輸出 RGB `uint8` 的 380×160 PNG，對應新式自用小客車比例，並記錄來源或變換後的四角點。
+- OCR canonical label 不含裝飾用連字號；顯示字串保留連字號。
+- 每一樣本由 run seed 與 index 推導獨立 seed；在鎖定的 Python 3.11 依賴下，字串、增強參數、metadata 與影像皆可重現。
+- 預設新式自用小客車為白底黑字、`LLL-DDDD`，並排除 `I`、`O`、`4`。
+- 預設字型是以 OFL-1.1 授權隨附的 Noto Sans Mono 視覺近似字型。若要用本專案的台灣車牌專用字型生成訓練資料，請明確指定 `--font taiwan_plate`：
 
-## M1 guarantees
+  ```powershell
+  .\.venv\Scripts\plateai-generate generate `
+    --count 10000 `
+    --seed 42 `
+    --font taiwan_plate `
+    --output out\train-taiwan-plate-font
+  ```
 
-- Default RGB `uint8` PNG crops at 380×160 (the new-style private-passenger aspect ratio) with source or transformed four-corner metadata.
-- Canonical OCR labels without the decorative hyphen; displayed plate text retains it.
-- Per-sample seeds derived from the run seed and index, with no shared random state.
-- Repeatable labels, transform parameters, metadata, and images under the locked Python 3.11 dependency set.
-- A bundled, unmodified OFL-1.1 Noto Sans Mono font at a recorded width/weight setting. It is a legally redistributable visual approximation, not an official Taiwan number-plate font.
-- Default new-style private-passenger rules use white background, black glyphs, the 3-4 layout, and exclude `I`, `O`, and `4`; other plate families remain later versions.
-- JSON Schema contracts for generated records, summaries, configuration, and future Model Bundles.
+  每次生成會記錄字型檔名與 SHA-256。`TaiwanPlate-Regular.ttf` 是以專案內的公路局參考資料建立，供本機合成與視覺比較使用；它不表示主管機關以產品形式發布此字型，或已授予衍生材料的一般再散布權。
 
-The four PNG files under `tests/fixtures/synthetic/` are algorithmically generated toy inputs used only to prove that code and contracts work. They contain no real vehicle image or identifying plate data and make no accuracy claim.
+- 機車色牌採 `plate_type` 選擇模板，不從任意車牌字串猜測車種。可產生一般重機白底黑字、250–550cc 黃底黑字、550cc 以上紅底白字，以及 50cc 綠底白字：
 
-## M2 local recognition
+  ```powershell
+  .\.venv\Scripts\plateai-generate generate `
+    --charset configs\charsets\tw_new_style_private_passenger_v1.txt `
+    --rules configs\plate_rules\tw_motorcycle_colours_v1.json `
+    --template configs\plate_templates\tw_motorcycle_colours_v1.json `
+    --output out\motorcycle-colours
+  ```
 
-The optional `training` extra provides a local PyTorch CTC trainer and ONNX exporter for the v1 crop contract. It uses Pillow-golden grayscale preprocessing, 80 CTC timesteps, blank index zero, and validates native-versus-ONNX parity before publishing an ignored local bundle. See `docs/training.md`; datasets, weights, ONNX files, runs, and bundles are not committed.
+  此組輸出尺寸與類型可變，供視覺與後續多 profile 工作使用；不可直接餵給目前固定 380×160 小客車契約的 M2/M4 recognizer。
 
-## M3a deterministic rectification
+`tests/fixtures/synthetic/` 下的四張 PNG 是演算法建立的玩具輸入，只用於驗證程式與契約，不含真實車輛或可識別的車牌資料，也不構成辨識準確度聲明。
 
-`plateai_reader.rectifier` accepts a `uint8` RGB source image plus four finite, in-frame corners in any order. It validates the convex hull, rejects degenerate or orientation-ambiguous geometry, uses the long plate edges to determine top/bottom and left/right semantics, then returns a canonical RGB `160×380` crop for M2.
+## M2 本機辨識訓練
 
-The only warp targets discrete destination pixels `(0,0)`, `(379,0)`, `(379,159)`, and `(0,159)` with OpenCV bilinear interpolation and a white constant border. The identity regression verifies every outer output pixel matches its source coordinate, so this contract does not hide last-row or last-column border mixing. M3a contains no detector data, detector training, detector weight, or detector ONNX export; those are M3b work.
+選用的 `training` extra 提供符合 v1 裁切契約的本機 PyTorch CTC trainer 與 ONNX exporter。它使用 Pillow golden 灰階前處理、80 個 CTC timestep、blank index 0，並在發布被忽略的本機 Bundle 前檢查 PyTorch 與 ONNX parity。資料集、權重、ONNX、run 與 Bundle 均不提交；詳見[訓練與資料集指南](docs/training.md)。
 
-## M3b local pose detection
+## M3a 四角點校正
 
-M3b is a local-only workflow for a user-provided, lawfully usable background manifest. The native detector accepts a 640x640 OpenCV RGB letterbox input and emits pre-NMS candidates shaped `[batch,8400,13]`. After deterministic NMS, each retained four-corner detection is independently passed to M3a's fixed RGB `380x160` crop rectifier, so one invalid pose does not prevent other retained detections from reaching the recognizer boundary.
+`plateai_reader.rectifier` 接受 `uint8` RGB 來源影像及任意排列的四個有限、在畫面內的角點。它先檢查凸包、拒絕退化或方向不明的幾何，再以車牌長邊判定上下與左右語意，輸出給 M2 使用的固定 RGB `160×380` 裁切圖。
 
-Run composition, detector training, and full-bundle export from an installed training environment as documented in [the detector workflow](docs/training.md#local-m3b-detector-workflow). Source-tree acceptance deliberately includes no bundled background, detector weight, ONNX artifact, TensorRT benchmark, browser integration, or production recognition metric.
+Warp 目標是離散像素 `(0,0)`、`(379,0)`、`(379,159)`、`(0,159)`，使用 OpenCV 雙線性插值與白色常數邊界。identity regression 會檢查所有外框輸出像素都對應到來源座標，避免最後一列或最後一欄混入邊界色。M3a 不含偵測資料、偵測訓練、偵測權重或偵測 ONNX；那些是 M3b 的範圍。
 
-## M4 local Reader
+## M3b 本機姿態偵測
 
-`plateai-read` loads a user-trained local full bundle only after verifying its
-manifest, declared file hashes, and ONNX contracts. It keeps detector and
-recognizer ONNX Runtime sessions alive, prioritizes TensorRT, CUDA, then CPU
-when the provider is not explicitly selected, applies deterministic NMS and
-rectification, batches canonical crops according to the recognizer manifest,
-and uses rule-constrained CTC decoding. For example:
+M3b 是給使用者自行提供、且具合法使用權背景圖 manifest 的本機工作流。原生偵測器輸入為 640×640 OpenCV RGB letterbox，輸出 pre-NMS `[batch,8400,13]` candidates。確定性 NMS 後，每個保留的四角點會獨立交給 M3a 做固定 RGB `380×160` 校正；單一壞姿態不會阻止其他候選進入 recognizer 邊界。
+
+資料合成、偵測器訓練與完整 Bundle 匯出，請依[偵測器工作流](docs/training.md#local-m3b-detector-workflow)執行。原始碼驗收刻意不包含背景圖、偵測權重、ONNX、TensorRT benchmark、瀏覽器整合或正式環境辨識指標。
+
+## M4 本機 Reader
+
+`plateai-read` 只會在驗證 manifest、宣告檔案雜湊與 ONNX 契約後載入使用者自行訓練的本機完整 Bundle。它保留 detector 與 recognizer 的 ONNX Runtime session，預設依序偏好 TensorRT、CUDA、CPU，執行確定性 NMS 與校正，依 recognizer manifest 分批處理標準化裁切圖，並用受規則限制的 CTC 解碼。例如：
 
 ```powershell
 .\.venv\Scripts\plateai-read --bundle models\bundles\v1-full-local --image C:\local\frame.png --warmup 5
 ```
 
-The command writes JSON containing retained detections, isolated rejections,
-canonical/display text, detection confidence, and observed per-stage timings.
-Those timings are local measurements, not a GPU or field-accuracy claim. The
-repository still contains no full bundle, ONNX model, real image, or benchmark
-result.
+命令輸出 JSON，包含保留的偵測結果、個別拒絕原因、canonical/display 文字、偵測信心值與各階段觀察時間。時間僅是本機量測，不是 GPU 效能或實地準確度聲明。儲存庫仍不含完整 Bundle、ONNX、真實影像或 benchmark 結果。
 
-## Train your own model
+## 用自己的資料訓練
 
-Use the public generator, import only lawfully obtained datasets, and train a bundle suitable for your own domain. Real plate photographs, production data, fonts without redistribution permission, and trained artifacts do not belong in this repository. See [the training and dataset guide](docs/training.md) and [the local model policy](models/README.md).
+使用公開生成器，僅匯入具有合法權利的資料集，並針對自己的領域訓練 Bundle。真實車牌照片、正式資料、沒有再散布權的字型及訓練產物不應放入此儲存庫。可用的外部評估來源與權利邊界請見[評估來源說明](docs/evaluation-sources.md)；本機模型政策見[models/README.md](models/README.md)。
 
-## License
+## 授權
 
-Project source is released under the [MIT License](LICENSE). This does not relicense dependencies, external fonts, datasets, or models; see [third-party notices](THIRD_PARTY_NOTICES.md).
+專案原始碼採 [MIT License](LICENSE)。MIT 不會重新授權相依套件、外部字型、資料集或模型；請見[第三方告知](THIRD_PARTY_NOTICES.md)。
