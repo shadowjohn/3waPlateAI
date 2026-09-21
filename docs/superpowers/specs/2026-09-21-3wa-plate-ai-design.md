@@ -30,7 +30,7 @@ The project is successful when it can:
 6. Report exact-plate accuracy, character accuracy, latency distribution, and failure categories.
 7. Run Reader without the full PaddleOCR detection pipeline.
 8. Keep real evaluation images and personally identifying plate data out of the public repository.
-9. Let a public clone verify the pipeline with committed synthetic fixtures and, after the full Reader exists, a clearly marked toy Model Bundle.
+9. Let a public clone verify the code and data contracts with committed synthetic fixtures while training all model artifacts locally.
 
 ## 3. Non-goals
 
@@ -43,7 +43,7 @@ The first implementation does not:
 - build the 3wa.tw demonstration page;
 - package third-party tools under the project's MIT license;
 - optimize TensorRT before a correct ONNX baseline exists.
-- represent a toy fixture or toy Model Bundle as evidence of commercial recognition accuracy.
+- distribute any trained weight, ONNX model, TensorRT engine, or Model Bundle, including a toy-trained artifact.
 
 ## 4. Architectural decisions
 
@@ -335,21 +335,13 @@ Each releasable bundle includes third-party notices and provenance. CI will even
 
 ### 14.1 Public distribution profile
 
-The public repository distributes the complete original MIT source for Trainer, Reader, the synthetic engine, constrained decoder, contracts, and benchmarks.
+The public repository distributes the complete original MIT source for Trainer, Reader, the synthetic engine, constrained decoder, training pipeline, contracts, and benchmarks.
 
 It also commits a small deterministic fixture set under `tests/fixtures/synthetic/`. Every fixture is generated entirely by this project, contains no observed vehicle identifier, and has a manifest recording generator version, seed, canonical label, and SHA-256. These fixtures exist only to keep unit and integration tests runnable from a clean clone.
 
-After detector, recognizer, and Reader integration exist, GitHub Releases may include a lightweight `toy-sample-bundle`. It must execute the real inference contract, but it is trained only enough to verify installation and pipeline wiring. It is not a production accuracy artifact.
+The project does not publish trained artifacts in the repository or GitHub Releases. This prohibition includes checkpoints, framework-native weights, ONNX exports, TensorRT engines, and both development and production Model Bundles. Bundle contracts and export code remain public so anyone can train and package their own compatible model.
 
-Every toy bundle manifest must declare:
-
-- `distribution.tier: "toy"`;
-- `distribution.intended_use` containing `pipeline-validation` and `ci`;
-- `distribution.production_ready: false`;
-- `distribution.accuracy_claimed: false`;
-- synthetic-only training provenance and complete third-party notices.
-
-Commercial-grade datasets, real plate imagery, and production-trained weights are not distributed by default. README must state that the project provides the synthesis, training, and high-speed inference engine, while production accuracy requires users to generate suitable synthetic data or import a lawfully obtained dataset and train their own bundle.
+Real plate imagery and project-tuned weights remain private. README must state that the project provides the synthesis, training, and high-speed inference engine, while all users generate suitable synthetic data or import a lawfully obtained dataset and train their own bundle. The absence of official weights must be explicit so users do not mistake source releases for a ready-trained recognition service.
 
 ## 15. Milestones
 
@@ -383,7 +375,7 @@ The command produces 100 valid images, a labels file, metadata JSONL, and a gene
 
 ### M2 — Recognition training and ONNX export
 
-Fine-tune a compact recognizer using the shared visible character set, declare and verify its CTC blank index and class mapping, evaluate it, export ONNX, verify parity, and create a crop-only development bundle with an explicit batch contract.
+Fine-tune a compact recognizer using the shared visible character set, declare and verify its CTC blank index and class mapping, evaluate it, export ONNX, verify parity, and create a local-only crop development bundle with an explicit batch contract. No trained artifact is committed or attached to a project release.
 
 ### M3 — Four-corner plate detector
 
@@ -391,7 +383,7 @@ Generate or label detector data, train the pose detector, evaluate boxes and cor
 
 ### M4 — High-speed Reader
 
-Load full bundles, run the end-to-end pipeline, add constrained decoding, implement manifest-driven multi-plate batching, benchmark providers and precision modes, expose CLI/library interfaces, and publish a synthetic-only `toy-sample-bundle` for pipeline validation.
+Load locally trained full bundles, run the end-to-end pipeline, add constrained decoding, implement manifest-driven multi-plate batching, benchmark providers and precision modes, and expose CLI/library interfaces. The project publishes no trained bundle.
 
 ### M5 — API and 3wa showroom
 
