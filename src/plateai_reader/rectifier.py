@@ -34,6 +34,15 @@ class NormalizedCorners:
     long_axis_xy: np.ndarray
 
 
+@dataclass(frozen=True)
+class RectifiedPlate:
+    """One canonical RGB plate crop and the source correspondence that made it."""
+
+    image_rgb: np.ndarray
+    corners: NormalizedCorners
+    transform: np.ndarray
+
+
 def normalize_corners(
     points_xy: np.ndarray,
     image_size_wh: tuple[int, int],
@@ -70,6 +79,41 @@ def normalize_corners(
         reordered=not np.allclose(points, canonical, atol=1e-6, rtol=0.0),
         long_axis_xy=long_axis.astype(np.float32),
     )
+
+
+def rectify_plate(image_rgb: np.ndarray, points_xy: np.ndarray) -> RectifiedPlate:
+    """Warp a validated four-corner source candidate into M2's RGB crop contract."""
+
+    height, width = _validate_rgb_image(image_rgb)
+    corners = normalize_corners(points_xy, (width, height))
+    destination = np.float32([[0, 0], [379, 0], [379, 159], [0, 159]])
+    transform = cv2.getPerspectiveTransform(corners.points_xy, destination)
+    if transform.shape != (3, 3) or not np.isfinite(transform).all():
+        raise InvalidCornersError("invalid_homography")
+    crop = cv2.warpPerspective(
+        image_rgb,
+        transform,
+        (CANONICAL_WIDTH, CANONICAL_HEIGHT),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
+    )
+    if crop.shape != (CANONICAL_HEIGHT, CANONICAL_WIDTH, 3) or crop.dtype != np.uint8:
+        raise RuntimeError("OpenCV returned an invalid canonical crop")
+    return RectifiedPlate(image_rgb=crop, corners=corners, transform=transform)
+
+
+def _validate_rgb_image(image_rgb: np.ndarray) -> tuple[int, int]:
+    if (
+        not isinstance(image_rgb, np.ndarray)
+        or image_rgb.dtype != np.uint8
+        or image_rgb.ndim != 3
+        or image_rgb.shape[2] != 3
+        or image_rgb.shape[0] <= 0
+        or image_rgb.shape[1] <= 0
+    ):
+        raise ValueError("image_rgb must be a non-empty uint8 RGB array")
+    return int(image_rgb.shape[0]), int(image_rgb.shape[1])
 
 
 def _validate_image_size(image_size_wh: tuple[int, int]) -> tuple[int, int]:

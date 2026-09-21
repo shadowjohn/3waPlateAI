@@ -5,7 +5,11 @@ import itertools
 import numpy as np
 import pytest
 
-from plateai_reader.rectifier import InvalidCornersError, normalize_corners
+from plateai_reader.rectifier import (
+    InvalidCornersError,
+    normalize_corners,
+    rectify_plate,
+)
 
 
 def test_every_trapezoid_permutation_has_one_canonical_order():
@@ -61,3 +65,19 @@ def test_invalid_corner_sets_reject_with_stable_reason(
 ):
     with pytest.raises(InvalidCornersError, match=reason):
         normalize_corners(points, image_size_wh)
+
+
+def test_identity_rectification_preserves_every_outer_pixel_without_border_mixing():
+    y, x = np.indices((160, 380), dtype=np.uint16)
+    source = np.stack(
+        ((x * 17 + y * 13) % 256, (x * 7 + y * 29) % 256, (x * 31 + y * 3) % 256),
+        axis=-1,
+    ).astype(np.uint8)
+    corners = np.float32([[0, 0], [379, 0], [379, 159], [0, 159]])
+
+    rectified = rectify_plate(source, corners).image_rgb
+
+    np.testing.assert_array_equal(rectified[0, :, :], source[0, :, :])
+    np.testing.assert_array_equal(rectified[-1, :, :], source[-1, :, :])
+    np.testing.assert_array_equal(rectified[:, 0, :], source[:, 0, :])
+    np.testing.assert_array_equal(rectified[:, -1, :], source[:, -1, :])
