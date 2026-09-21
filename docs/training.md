@@ -28,7 +28,7 @@ out/demo/
 
 | Path | Purpose |
 |---|---|
-| `images/*.png` | RGB `uint8`, 320×96 recognizer crops |
+| `images/*.png` | Default RGB `uint8`, 380×160 new-style private-passenger recognizer crops |
 | `labels.txt` | PaddleOCR-compatible `relative/path.png<TAB>CANONICAL_TEXT` records |
 | `metadata.jsonl` | One JSON object per image: display text, canonical text, corners, transform parameters, provenance, and PNG hash |
 | `generation_config.json` | Seed, count, font identifier, repository-relative input paths, and input hashes |
@@ -42,9 +42,9 @@ Published schemas live under `schemas/`. `generation_metadata.schema.json` fixes
 
 A run consumes four versioned inputs:
 
-- `configs/charsets/tw_plate_latin_v1.txt` — ordered visible symbols only; never a CTC blank token.
-- `configs/plate_rules/tw_plate_v1.json` — weighted, data-driven canonical/display layouts.
-- `configs/plate_templates/standard_white_v1.json` — canvas, colors, border, and text box.
+- `configs/charsets/tw_new_style_private_passenger_v1.txt` — ordered visible symbols for the default new-style private-passenger profile; never a CTC blank token.
+- `configs/plate_rules/tw_new_style_private_passenger_v1.json` — the default 3-4 rule, excluding `I`, `O`, and `4`.
+- `configs/plate_templates/new_style_private_passenger_white_v1.json` — 380×160 white background, black glyphs, border, and text box.
 - `configs/augmentation/*.json` — bounded geometry and photometric probabilities.
 
 Override them with `--charset`, `--rules`, `--template`, and `--augmentation`. Treat configuration files as immutable inputs to a run. Their SHA-256 values are recorded in the output; edit by creating a new versioned file rather than mutating the history of an established dataset.
@@ -53,7 +53,7 @@ The same run seed, sample index, input files, and `requirements/py311.lock.txt` 
 
 ## Fonts
 
-Without `--font`, the renderer uses OpenCV's built-in Hershey face. It is safe for pipeline development and CI but is not intended to represent every production plate font.
+Without `--font`, the renderer uses the bundled, unmodified `NotoSansMono[wdth,wght].ttf` at weight 700 and width 62. The font is covered by SIL OFL-1.1; its SHA-256 and complete license text are retained in `THIRD_PARTY_NOTICES.md` and `assets/fonts/OFL.txt`. It is a legal visual approximation for the default new-style private-passenger profile, not an official Taiwan number-plate font.
 
 Supply a local TrueType or OpenType file when needed:
 
@@ -65,7 +65,7 @@ python -m plateai_trainer.synthetic generate \
   --output out/train-custom-font
 ```
 
-The path must name a readable `.ttf` or `.otf` file. Before redistributing a font, verify its license and add its copyright and license text to the distribution. A local font is identified in metadata by filename; its bytes are not copied into the generated dataset.
+The path must name a readable `.ttf` or `.otf` file. Before redistributing a font, verify its license and add its copyright and license text to the distribution. A local font is identified in metadata by filename and SHA-256; its bytes are not copied into the generated dataset.
 
 ## From generated data to a local bundle
 

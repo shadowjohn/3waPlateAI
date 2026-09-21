@@ -199,6 +199,7 @@ def generate_dataset(
         "template": _sha256_file(request.template_path),
         "augmentation": _sha256_file(request.augmentation_path),
     }
+    font_sha256 = _sha256_file(font.path) if font.path is not None else None
     request.output.parent.mkdir(parents=True, exist_ok=True)
     if request.output.exists():
         raise OutputExistsError(f"output already exists: {request.output}")
@@ -215,6 +216,8 @@ def generate_dataset(
             "seed": request.seed,
             "count": request.count,
             "font": font.name,
+            "font_variation_axes": list(font.variation_axes),
+            "font_sha256": font_sha256,
             "config_paths": {
                 "charset": _portable_config_path(request.charset_path),
                 "rules": _portable_config_path(request.rules_path),

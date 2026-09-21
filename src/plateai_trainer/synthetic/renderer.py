@@ -77,11 +77,17 @@ def _draw_hershey(
     )
 
 
-def _load_truetype(path, size: int):
+def _load_truetype(path, size: int, variation_axes: tuple[int, ...]):
     try:
-        return ImageFont.truetype(str(path), size=size)
+        font = ImageFont.truetype(str(path), size=size)
     except OSError as exc:
         raise ValueError(f"cannot load font: {path}") from exc
+    if variation_axes:
+        try:
+            font.set_variation_by_axes(list(variation_axes))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"cannot set font variation axes: {path}") from exc
+    return font
 
 
 def _draw_truetype(
@@ -97,7 +103,7 @@ def _draw_truetype(
     draw = ImageDraw.Draw(image)
 
     def candidate(size: int):
-        loaded = _load_truetype(font.path, size)
+        loaded = _load_truetype(font.path, size, font.variation_axes)
         bounds = draw.textbbox((0, 0), text, font=loaded)
         return loaded, bounds
 
@@ -170,6 +176,7 @@ def render_plate(
             "rendered_text": sample.display,
             "font_kind": font.kind,
             "font_name": font.name,
+            "font_variation_axes": list(font.variation_axes),
             "template_id": template.id,
         }
     )

@@ -41,6 +41,7 @@ where = ["src"]
 "share/3wa-plate-ai/configs/plate_templates" = ["configs/plate_templates/*.json"]
 "share/3wa-plate-ai/configs/augmentation" = ["configs/augmentation/*.json"]
 "share/3wa-plate-ai/schemas" = ["schemas/*.json"]
+"share/3wa-plate-ai/fonts" = ["assets/fonts/*.ttf", "assets/fonts/OFL.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -17,11 +17,12 @@
     "renderer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["rendered_text", "font_kind", "font_name", "template_id"],
+      "required": ["rendered_text", "font_kind", "font_name", "font_variation_axes", "template_id"],
       "properties": {
         "rendered_text": {"type": "string", "minLength": 1},
         "font_kind": {"enum": ["hershey", "truetype"]},
         "font_name": {"type": "string", "minLength": 1},
+        "font_variation_axes": {"type": "array", "items": {"type": "integer"}},
         "template_id": {"type": "string", "minLength": 1}
       }
     },

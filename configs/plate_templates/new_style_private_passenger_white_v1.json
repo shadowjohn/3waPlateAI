@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "new-style-private-passenger-white-v1",
+  "width": 380,
+  "height": 160,
+  "background_rgb": [245, 245, 242],
+  "foreground_rgb": [18, 18, 18],
+  "border_rgb": [18, 18, 18],
+  "border_width": 3,
+  "corner_radius": 10,
+  "text_box": [24, 24, 356, 136]
+}

@@ -4,6 +4,8 @@ import json
 import subprocess
 import sys
 
+from PIL import Image
+
 from plateai_trainer.synthetic import cli
 
 
@@ -31,6 +33,20 @@ def test_generate_command_creates_requested_count(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["generated"] == 3
     assert payload["output"] == str(output)
+
+
+def test_default_cli_profile_generates_new_style_private_passenger_crops(tmp_path):
+    output = tmp_path / "new-style-private-passenger"
+    result = run_cli("generate", "--count", "1", "--seed", "42", "--output", str(output))
+    assert result.returncode == 0, result.stderr
+    with Image.open(output / "images/000000.png") as image:
+        assert image.size == (380, 160)
+    label = (output / "labels.txt").read_text(encoding="utf-8").split("\t", 1)[1]
+    assert not ({"I", "O", "4"} & set(label))
+    configuration = json.loads((output / "generation_config.json").read_text(encoding="utf-8"))
+    assert configuration["font"] == "NotoSansMono[wdth,wght].ttf"
+    assert configuration["font_variation_axes"] == [700, 62]
+    assert configuration["font_sha256"] == "2cb2adb378a8f574213e23df697050b83c54c27df465a2015552740b2769a081"
 
 
 def test_zero_count_returns_usage_error_without_output(tmp_path):

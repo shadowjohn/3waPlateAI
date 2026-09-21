@@ -54,18 +54,22 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument(
         "--charset",
         type=Path,
-        default=_default_config_path("configs/charsets/tw_plate_latin_v1.txt"),
+        default=_default_config_path(
+            "configs/charsets/tw_new_style_private_passenger_v1.txt"
+        ),
     )
     generate.add_argument(
         "--rules",
         type=Path,
-        default=_default_config_path("configs/plate_rules/tw_plate_v1.json"),
+        default=_default_config_path(
+            "configs/plate_rules/tw_new_style_private_passenger_v1.json"
+        ),
     )
     generate.add_argument(
         "--template",
         type=Path,
         default=_default_config_path(
-            "configs/plate_templates/standard_white_v1.json"
+            "configs/plate_templates/new_style_private_passenger_white_v1.json"
         ),
     )
     generate.add_argument(
@@ -73,7 +77,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_default_config_path("configs/augmentation/standard_v1.json"),
     )
-    generate.add_argument("--font", type=Path)
+    generate.add_argument(
+        "--font",
+        type=Path,
+        help="override the bundled OFL font with a local .ttf or .otf file",
+    )
     generate.add_argument(
         "--debug",
         action="store_true",

@@ -11,7 +11,7 @@ from plateai_trainer.synthetic.templates import load_template
 from tests.conftest import write_json
 
 
-def test_hershey_renderer_returns_rgb_plate_and_ordered_corners(default_template):
+def test_renderer_returns_rgb_plate_and_ordered_corners(default_template):
     sample = GeneratedPlate("ABC1234", "ABC-1234", "standard-lll-dddd", "standard")
     rendered = render_plate(sample, default_template, resolve_font(None))
     assert rendered.image_rgb.shape == (96, 320, 3)
@@ -24,6 +24,14 @@ def test_hershey_renderer_returns_rgb_plate_and_ordered_corners(default_template
     ]
     assert np.count_nonzero(rendered.image_rgb < 80) > 500
     assert rendered.metadata["rendered_text"] == "ABC-1234"
+
+
+def test_default_font_is_the_packaged_ofl_face():
+    font = resolve_font(None)
+    assert font.kind == "truetype"
+    assert font.name == "NotoSansMono[wdth,wght].ttf"
+    assert font.path is not None
+    assert font.path.is_file()
 
 
 def test_missing_explicit_font_has_clear_error(tmp_path):

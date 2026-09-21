@@ -39,11 +39,12 @@ Generation refuses to overwrite an existing output directory. Publication is tra
 
 ## M1 guarantees
 
-- RGB `uint8` PNG crops at 320×96 with source or transformed four-corner metadata.
+- Default RGB `uint8` PNG crops at 380×160 (the new-style private-passenger aspect ratio) with source or transformed four-corner metadata.
 - Canonical OCR labels without the decorative hyphen; displayed plate text retains it.
 - Per-sample seeds derived from the run seed and index, with no shared random state.
 - Repeatable labels, transform parameters, metadata, and images under the locked Python 3.11 dependency set.
-- A built-in OpenCV Hershey font for development, so no redistributable font file is required.
+- A bundled, unmodified OFL-1.1 Noto Sans Mono font at a recorded width/weight setting. It is a legally redistributable visual approximation, not an official Taiwan number-plate font.
+- Default new-style private-passenger rules use white background, black glyphs, the 3-4 layout, and exclude `I`, `O`, and `4`; other plate families remain later versions.
 - JSON Schema contracts for generated records, summaries, configuration, and future Model Bundles.
 
 The four PNG files under `tests/fixtures/synthetic/` are algorithmically generated toy inputs used only to prove that code and contracts work. They contain no real vehicle image or identifying plate data and make no accuracy claim.

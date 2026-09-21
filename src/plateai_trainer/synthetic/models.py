@@ -31,6 +31,7 @@ class FontSpec:
     kind: Literal["hershey", "truetype"]
     name: str
     path: Path | None
+    variation_axes: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
