@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 
 import numpy as np
 import pytest
@@ -138,3 +139,38 @@ def test_shared_background_rejected_even_for_different_generation_seeds(tmp_path
         validate_train_validation_pair(train, validation)
     distinct = DetectionDataset(make_dataset(tmp_path, "distinct", color=21))
     validate_train_validation_pair(train, distinct)
+
+
+@pytest.mark.parametrize("include_regular_instance", [False, True])
+def test_preserves_instances_without_positive_grid_cells(tmp_path, include_regular_instance):
+    root = make_dataset(tmp_path)
+    path = root / "generation_config.json"
+    config = json.loads(path.read_text(encoding="utf-8"))
+    config["instances_per_image"] = [1, 3]
+    path.write_text(json.dumps(config), encoding="utf-8")
+
+    def fixed(record):
+        small = record["instances"][0]
+        small["corners"] = [[0., 0.], [3.79, 0.], [3.79, 1.59], [0., 1.59]]
+        small["bbox_xyxy"] = [0., 0., 3.79, 1.59]
+        small["transform"]["homography"] = [[.01, 0., 0.], [0., .01, 0.], [0., 0., 1.]]
+        if include_regular_instance:
+            regular = deepcopy(small)
+            regular["corners"] = [[100., 50.], [479., 50.], [479., 209.], [100., 209.]]
+            regular["bbox_xyxy"] = [100., 50., 479., 209.]
+            regular["transform"]["homography"] = [[1., 0., 100.], [0., 1., 50.], [0., 0., 1.]]
+            record["instances"].append(regular)
+
+    rewrite_record(root, fixed)
+    sample = DetectionDataset(root)[0]
+    assert len(sample.instances) == (2 if include_regular_instance else 1)
+    # The tiny box spans x=0..3.032 at 640; the first P3 centre is x=4.
+    np.testing.assert_allclose(sample.instances[0].bbox_xyxy, [0, 159, 3.032, 160.272])
+    owners = sample.targets.matched_instance_indices[sample.targets.positive_indices]
+    if include_regular_instance:
+        assert set(owners) == {1}
+    else:
+        assert sample.targets.positive_indices.size == 0
+        assert np.all(sample.targets.matched_instance_indices == -1)
+        assert sample.targets.bbox_xyxy.shape == (0, 4)
+        assert sample.targets.corners_xy.shape == (0, 4, 2)

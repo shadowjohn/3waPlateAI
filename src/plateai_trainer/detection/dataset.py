@@ -217,8 +217,6 @@ class DetectionDataset:
             map_points_to_letterbox(item["corners"], transform), item["source_plate"],
         ) for item in record["instances"])
         targets = assign_detection_targets(instances)
-        if set(targets.matched_instance_indices[targets.positive_indices]) != set(range(len(instances))):
-            raise DetectionDataError("each instance must have an assigned positive target")
         return DetectionSample(image, instances, targets, transform)
 
 
