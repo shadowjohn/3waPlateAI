@@ -6,8 +6,9 @@ import hashlib
 import json
 import math
 import random
+import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -33,11 +34,6 @@ from .contracts import (
     CompositeGenerationSummary,
     _default_data_path,
 )
-
-
-_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-_BACKGROUND_SCHEMA = _REPOSITORY_ROOT / "schemas/detection_background_manifest.schema.json"
-_METADATA_SCHEMA = _REPOSITORY_ROOT / "schemas/detection_metadata.schema.json"
 
 
 class CompositeGenerationError(PublicationError):
@@ -68,18 +64,9 @@ def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _sha256_file(path: Path) -> str:
+def _read_json_bytes(raw: bytes, path: Path, description: str) -> dict[str, Any]:
     try:
-        return _sha256_bytes(path.read_bytes())
-    except OSError as exc:
-        raise InvalidCompositeRequest(f"cannot read file {path}: {exc}") from exc
-
-
-def _read_json(path: Path, description: str) -> dict[str, Any]:
-    try:
-        document = json.loads(path.read_bytes())
-    except OSError as exc:
-        raise InvalidCompositeRequest(f"cannot read {description} {path}: {exc}") from exc
+        document = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise InvalidCompositeRequest(f"invalid UTF-8 JSON {description}: {path}") from exc
     if not isinstance(document, dict):
@@ -100,8 +87,8 @@ def _numeric_pair(value: Any, name: str) -> tuple[float, float]:
     return low, high
 
 
-def _load_config(path: Path) -> _CompositeConfig:
-    document = _read_json(path, "composite config")
+def _load_config(path: Path, raw: bytes) -> _CompositeConfig:
+    document = _read_json_bytes(raw, path, "composite config")
     if document.get("schema_version") != 1:
         raise InvalidCompositeRequest("composite config schema_version must be 1")
     config_id = document.get("id")
@@ -128,8 +115,10 @@ def _load_config(path: Path) -> _CompositeConfig:
     )
 
 
-def _load_and_hash_background_manifest(path: Path) -> tuple[_Background, ...]:
-    document = _read_json(path, "background manifest")
+def _load_and_hash_background_manifest(
+    path: Path, raw: bytes
+) -> tuple[_Background, ...]:
+    document = _read_json_bytes(raw, path, "background manifest")
     validate_document(
         document,
         _default_data_path("schemas/detection_background_manifest.schema.json"),
@@ -215,15 +204,64 @@ def _create_owned_staging(output: Path) -> Path:
     return staging
 
 
-def _snapshot_input_hashes(request: CompositeGenerationRequest, font) -> dict[str, str | None]:
-    return {
-        "background_manifest": _sha256_file(request.background_manifest),
-        "composite_config": _sha256_file(request.config_path),
-        "charset": _sha256_file(request.charset_path),
-        "rules": _sha256_file(request.rules_path),
-        "template": _sha256_file(request.template_path),
-        "font": _sha256_file(font.path) if font.path is not None else None,
+def _snapshot_input_bytes(
+    request: CompositeGenerationRequest, font
+) -> dict[str, bytes | None]:
+    paths = {
+        "background_manifest": request.background_manifest,
+        "composite_config": request.config_path,
+        "charset": request.charset_path,
+        "rules": request.rules_path,
+        "template": request.template_path,
+        "font": font.path,
     }
+    snapshots: dict[str, bytes | None] = {}
+    for name, path in paths.items():
+        if path is None:
+            snapshots[name] = None
+            continue
+        try:
+            snapshots[name] = path.read_bytes()
+        except OSError as exc:
+            raise InvalidCompositeRequest(f"cannot read file {path}: {exc}") from exc
+    return snapshots
+
+
+def _snapshot_hashes(snapshots: dict[str, bytes | None]) -> dict[str, str | None]:
+    return {
+        name: _sha256_bytes(raw) if raw is not None else None
+        for name, raw in snapshots.items()
+    }
+
+
+def _write_parser_snapshots(
+    root: Path,
+    request: CompositeGenerationRequest,
+    font,
+    snapshots: dict[str, bytes | None],
+) -> tuple[dict[str, Path], Any]:
+    sources = {
+        "charset": request.charset_path,
+        "rules": request.rules_path,
+        "template": request.template_path,
+    }
+    paths: dict[str, Path] = {}
+    for name, source in sources.items():
+        path = root / name / source.name
+        path.parent.mkdir()
+        raw = snapshots[name]
+        assert raw is not None
+        path.write_bytes(raw)
+        paths[name] = path
+    snapshot_font = font
+    if font.path is not None:
+        font_path = root / "font" / font.path.name
+        font_path.parent.mkdir()
+        raw_font = snapshots["font"]
+        assert raw_font is not None
+        font_path.write_bytes(raw_font)
+        snapshot_font = replace(font, path=font_path)
+    return paths, snapshot_font
 
 
 def _verify_input_hashes(
@@ -231,7 +269,7 @@ def _verify_input_hashes(
     font,
     expected: dict[str, str | None],
 ) -> None:
-    current = _snapshot_input_hashes(request, font)
+    current = _snapshot_hashes(_snapshot_input_bytes(request, font))
     changed = sorted(key for key in expected if current[key] != expected[key])
     if changed:
         raise InvalidCompositeRequest(
@@ -458,70 +496,82 @@ def generate_composite_dataset(
     """Generate a complete composite dataset and publish it without replacement."""
 
     _validate_request(request)
-    font = resolve_font(request.font)
-    hashes = _snapshot_input_hashes(request, font)
-    backgrounds = _load_and_hash_background_manifest(request.background_manifest)
-    config = _load_config(request.config_path)
-    charset = load_character_set(request.charset_path)
-    ruleset = load_ruleset(request.rules_path, charset)
-    template = load_template(request.template_path)
-    if (
-        template.id != "new-style-private-passenger-white-v1"
-        or template.width != 380
-        or template.height != 160
-    ):
-        raise InvalidCompositeRequest(
-            "M3b composites require the M1 v1 template "
-            "new-style-private-passenger-white-v1 at 380x160"
+    source_font = resolve_font(request.font)
+    snapshots = _snapshot_input_bytes(request, source_font)
+    hashes = _snapshot_hashes(snapshots)
+    with tempfile.TemporaryDirectory(prefix="plateai-compose-inputs-") as temporary:
+        snapshot_paths, font = _write_parser_snapshots(
+            Path(temporary), request, source_font, snapshots
         )
-    _verify_input_hashes(request, font, hashes)
-    rng = np.random.default_rng(request.seed)
-    staging = _create_owned_staging(request.output)
-    try:
-        records = [
-            _compose_one_image(
-                backgrounds,
-                rng,
-                request,
-                staging / "images",
-                index,
-                config,
-                ruleset,
-                template,
-                font,
+        manifest_raw = snapshots["background_manifest"]
+        config_raw = snapshots["composite_config"]
+        assert manifest_raw is not None and config_raw is not None
+        backgrounds = _load_and_hash_background_manifest(
+            request.background_manifest, manifest_raw
+        )
+        config = _load_config(request.config_path, config_raw)
+        charset = load_character_set(snapshot_paths["charset"])
+        ruleset = load_ruleset(snapshot_paths["rules"], charset)
+        template = load_template(snapshot_paths["template"])
+        if (
+            template.id != "new-style-private-passenger-white-v1"
+            or template.width != 380
+            or template.height != 160
+        ):
+            raise InvalidCompositeRequest(
+                "M3b composites require the M1 v1 template "
+                "new-style-private-passenger-white-v1 at 380x160"
             )
-            for index in range(request.count)
-        ]
-        _write_jsonl(staging / "metadata.jsonl", records)
-        _verify_input_hashes(request, font, hashes)
-        generation_config = {
-            "schema_version": 1,
-            "seed": request.seed,
-            "count": request.count,
-            "instances_per_image": list(request.instances_per_image),
-            "composite_profile_id": config.id,
-            "config_sha256": hashes,
-            "backgrounds": [
-                {"image_path": item.manifest_path, "sha256": item.sha256}
-                for item in backgrounds
-            ],
-        }
-        (staging / "generation_config.json").write_text(
-            _json_text(generation_config), encoding="utf-8", newline="\n"
-        )
-        summary_document = {
-            "schema_version": 1,
-            "generated": request.count,
-            "seed": request.seed,
-            "background_sha256s": sorted({item.sha256 for item in backgrounds}),
-        }
-        (staging / "summary.json").write_text(
-            _json_text(summary_document), encoding="utf-8", newline="\n"
-        )
-        publish_directory_no_replace(staging, request.output)
-    except BaseException:
-        remove_owned_staging(staging, request.output)
-        raise
+        _verify_input_hashes(request, source_font, hashes)
+        rng = np.random.default_rng(request.seed)
+        staging = _create_owned_staging(request.output)
+        try:
+            records = [
+                _compose_one_image(
+                    backgrounds,
+                    rng,
+                    request,
+                    staging / "images",
+                    index,
+                    config,
+                    ruleset,
+                    template,
+                    font,
+                )
+                for index in range(request.count)
+            ]
+            _write_jsonl(staging / "metadata.jsonl", records)
+            _verify_input_hashes(request, source_font, hashes)
+            generation_config = {
+                "schema_version": 1,
+                "seed": request.seed,
+                "count": request.count,
+                "instances_per_image": list(request.instances_per_image),
+                "composite_profile_id": config.id,
+                "config_sha256": hashes,
+                "backgrounds": [
+                    {"image_path": item.manifest_path, "sha256": item.sha256}
+                    for item in backgrounds
+                ],
+            }
+            (staging / "generation_config.json").write_text(
+                _json_text(generation_config), encoding="utf-8", newline="\n"
+            )
+            summary_document = {
+                "schema_version": 1,
+                "generated": request.count,
+                "seed": request.seed,
+                "background_sha256s": sorted(
+                    {item.sha256 for item in backgrounds}
+                ),
+            }
+            (staging / "summary.json").write_text(
+                _json_text(summary_document), encoding="utf-8", newline="\n"
+            )
+            publish_directory_no_replace(staging, request.output)
+        except BaseException:
+            remove_owned_staging(staging, request.output)
+            raise
     return CompositeGenerationSummary(
         generated=request.count,
         output=request.output,

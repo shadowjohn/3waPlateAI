@@ -256,11 +256,13 @@ def test_installed_layout_generation_resolves_packaged_schemas(
         composite_module,
         "_BACKGROUND_SCHEMA",
         checkout / "schemas/detection_background_manifest.schema.json",
+        raising=False,
     )
     monkeypatch.setattr(
         composite_module,
         "_METADATA_SCHEMA",
         checkout / "schemas/detection_metadata.schema.json",
+        raising=False,
     )
 
     output = tmp_path / "installed-layout-output"
@@ -348,3 +350,56 @@ def test_input_change_during_generation_is_not_published(
 
     assert not output.exists()
     assert list(tmp_path.glob(".changed-input-output.partial-*")) == []
+
+
+def test_rules_parser_is_bound_to_snapshot_during_aba_mutation(
+    tmp_path, background_manifest, monkeypatch
+):
+    rules_path = tmp_path / "rules.json"
+    original_bytes = V1_RULES.read_bytes()
+    rules_path.write_bytes(original_bytes)
+    mutant = json.loads(original_bytes)
+    mutant["id"] = "aba-mutant"
+    mutant["rules"] = [
+        {
+            "id": "aba-all-a",
+            "tokens": [{"literal": "A"}] * 7,
+            "separator": "-",
+            "separator_after": [3],
+            "plate_type": "new-style-private-passenger",
+            "weight": 1.0,
+            "enabled": True,
+        }
+    ]
+    mutant_bytes = json.dumps(mutant).encode("utf-8")
+    real_load_ruleset = composite_module.load_ruleset
+
+    def aba_load_ruleset(path, charset):
+        rules_path.write_bytes(mutant_bytes)
+        try:
+            return real_load_ruleset(path, charset)
+        finally:
+            rules_path.write_bytes(original_bytes)
+
+    monkeypatch.setattr(composite_module, "load_ruleset", aba_load_ruleset)
+    output = tmp_path / "aba-output"
+    generate_composite_dataset(
+        CompositeGenerationRequest(
+            output=output,
+            count=1,
+            seed=5,
+            background_manifest=background_manifest,
+            instances_per_image=(1, 1),
+            rules_path=rules_path,
+        )
+    )
+
+    record = json.loads((output / "metadata.jsonl").read_text(encoding="utf-8"))
+    provenance = json.loads(
+        (output / "generation_config.json").read_text(encoding="utf-8")
+    )
+    assert record["instances"][0]["source_plate"]["canonical"] != "AAAAAAA"
+    assert provenance["config_sha256"]["rules"] == hashlib.sha256(
+        original_bytes
+    ).hexdigest()
+    assert rules_path.read_bytes() == original_bytes
