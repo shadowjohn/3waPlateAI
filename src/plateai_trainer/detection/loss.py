@@ -1,4 +1,4 @@
-"""Objectness BCE + 5 CIoU + 2 normalized semantic-corner Smooth L1."""
+"""Objectness focal BCE + 5 CIoU + 2 normalized semantic-corner Smooth L1."""
 
 from __future__ import annotations
 
@@ -10,6 +10,10 @@ import torch
 from torch.nn import functional as F
 
 from plateai_trainer.detection.targets import DetectionTargets
+
+
+FOCAL_GAMMA = 2.0
+FOCAL_ALPHA = 0.25
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,11 +47,13 @@ def _ciou_loss(predicted: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
 def detection_loss(
     predictions: torch.Tensor, targets: DetectionTargets | Sequence[DetectionTargets]
 ) -> DetectorLoss:
-    """Mean BCE across all cells; geometry means across positive cells only.
+    """Mean focal BCE across all cells; positive-only geometry means.
 
     Pass a single DetectionTargets for batch one, or one target object per
     image in batch order. Arrays are copied to predictions' device/dtype.
     Empty-positive batches retain a differentiable zero geometry loss.
+    Objectness uses gamma=2.0, alpha=0.25 for positives and 1-alpha for
+    negatives: -alpha_t * (1-p_t)**gamma * log(p_t).
     """
     batch_targets = [targets] if isinstance(targets, DetectionTargets) else list(targets)
     if predictions.ndim != 3 or tuple(predictions.shape[1:]) != (8400, 13) or predictions.shape[0] != len(batch_targets) or not batch_targets:
@@ -60,7 +66,11 @@ def detection_loss(
         positives.append(predictions[batch_index, indices])
         boxes.append(torch.as_tensor(target.bbox_xyxy, dtype=predictions.dtype, device=predictions.device))
         corners.append(torch.as_tensor(target.corners_xy, dtype=predictions.dtype, device=predictions.device))
-    objectness = F.binary_cross_entropy(predictions[..., 4].clamp(1e-7, 1 - 1e-7), objectness_targets)
+    probabilities = predictions[..., 4].clamp(1e-7, 1 - 1e-7)
+    bce = F.binary_cross_entropy(probabilities, objectness_targets, reduction="none")
+    p_t = probabilities * objectness_targets + (1 - probabilities) * (1 - objectness_targets)
+    alpha_t = FOCAL_ALPHA * objectness_targets + (1 - FOCAL_ALPHA) * (1 - objectness_targets)
+    objectness = (alpha_t * (1 - p_t).pow(FOCAL_GAMMA) * bce).mean()
     positive_predictions = torch.cat(positives)
     if positive_predictions.shape[0]:
         matched_boxes = torch.cat(boxes)

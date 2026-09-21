@@ -105,14 +105,49 @@ def test_assigner_rejects_invalid_letterbox_boxes(bbox):
         assign_detection_targets([instance(bbox)])
 
 
-def test_loss_uses_all_candidate_objectness_and_zero_perfect_geometry_loss():
+def test_loss_uses_all_candidate_focal_objectness_and_zero_perfect_geometry_loss():
     targets = assign_detection_targets([instance()])
     result = detection_loss(perfect_predictions(targets), targets)
-    expected = -(9 * math.log(0.25) + 8391 * math.log(0.75)) / 8400
+    # Binary focal BCE: gamma=2.0, positive alpha=0.25, negative alpha=0.75.
+    expected = -(9 * 0.25 * 0.75**2 * math.log(0.25) + 8391 * 0.75 * 0.25**2 * math.log(0.75)) / 8400
     assert float(result.objectness) == pytest.approx(expected)
     assert float(result.box_ciou) == pytest.approx(0, abs=1e-6)
     assert float(result.corner_smooth_l1) == 0
     torch.testing.assert_close(result.total, result.objectness + 5 * result.box_ciou + 2 * result.corner_smooth_l1)
+
+
+@pytest.mark.parametrize("positive_p,negative_p", [(0.9, 0.1), (0.1, 0.9), (0.9, 0.9), (0.1, 0.1)])
+def test_focal_objectness_easy_hard_values_and_gradients(positive_p, negative_p):
+    targets = assign_detection_targets([instance()])
+    predictions = perfect_predictions(targets)
+    predictions[..., 4] = negative_p
+    predictions[0, targets.positive_indices, 4] = positive_p
+    predictions.requires_grad_()
+    result = detection_loss(predictions, targets)
+    # Independent scalar oracles, gamma=2.0 and alpha=0.25; do not call
+    # production helpers or reuse its tensor weighting computation.
+    positive_loss = -0.25 * (1 - positive_p)**2 * math.log(positive_p)
+    negative_loss = -0.75 * negative_p**2 * math.log(1 - negative_p)
+    assert float(result.objectness.detach()) == pytest.approx((9 * positive_loss + 8391 * negative_loss) / 8400)
+    result.objectness.backward()
+    assert torch.isfinite(predictions.grad).all()
+    positive_derivative = 0.25 * (2 * (1 - positive_p) * math.log(positive_p) - (1 - positive_p)**2 / positive_p)
+    negative_derivative = 0.75 * (-2 * negative_p * math.log(1 - negative_p) + negative_p**2 / (1 - negative_p))
+    assert float(predictions.grad[0, 7015, 4] * 8400) == pytest.approx(positive_derivative)
+    assert float(predictions.grad[0, 0, 4] * 8400) == pytest.approx(negative_derivative)
+
+
+@pytest.mark.parametrize("positive_p,negative_p", [(0., 1.), (1., 0.)])
+def test_focal_objectness_saturated_probabilities_have_finite_loss_and_gradients(positive_p, negative_p):
+    targets = assign_detection_targets([instance()])
+    predictions = perfect_predictions(targets)
+    predictions[..., 4] = negative_p
+    predictions[0, targets.positive_indices, 4] = positive_p
+    predictions.requires_grad_()
+    result = detection_loss(predictions, targets)
+    result.total.backward()
+    assert torch.isfinite(result.total)
+    assert torch.isfinite(predictions.grad).all()
 
 
 def test_corner_loss_normalizes_xy_by_bbox_dimensions_and_ignores_negatives():
