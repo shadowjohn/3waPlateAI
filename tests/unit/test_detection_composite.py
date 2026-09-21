@@ -179,6 +179,61 @@ def test_same_request_writes_byte_identical_dataset(tmp_path, background_manifes
     assert first_files == second_files
 
 
+@pytest.mark.parametrize("count,instances", [(3, 1), (1, 3), (2, 2), (4, 3)])
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_default_composites_guarantee_projected_size_strata(
+    tmp_path, background_manifest, count, instances, seed
+):
+    output = tmp_path / "stratified"
+    generate_composite_dataset(CompositeGenerationRequest(
+        output, count, seed, background_manifest, instances_per_image=(instances, instances),
+    ))
+    records = [json.loads(line) for line in (output / "metadata.jsonl").read_text(encoding="utf-8").splitlines()]
+    observed = []
+    for record in records:
+        assert max_pairwise_bbox_iou(record["instances"]) == 0
+        for item in record["instances"]:
+            corners = np.asarray(item["corners"], dtype=np.float32)
+            shortest = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1).min()
+            assert shortest >= 16
+            observed.append("16to31" if shortest < 32 else "32to63" if shortest < 64 else "ge64")
+            assert is_semantic_quad(corners)
+            assert np.all(corners >= 0)
+            assert np.all(corners < [720, 480])
+            homography = np.float32(item["transform"]["homography"])
+            source = np.float32(item["source_plate"]["corners"])
+            np.testing.assert_allclose(cv2.perspectiveTransform(source[None], homography)[0], corners, atol=1e-4)
+    assert observed == ["16to31", "32to63", "ge64"] * (len(observed) // 3) + ["16to31", "32to63", "ge64"][:len(observed) % 3]
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    assert summary["projected_shortest_edge_source_px"]["complete"] is True
+
+
+@pytest.mark.parametrize("instances,expected", [(1, {"16to31": 1, "32to63": 0, "ge64": 0}), (2, {"16to31": 1, "32to63": 1, "ge64": 0})])
+def test_undersized_composites_report_partial_strata(tmp_path, background_manifest, instances, expected):
+    output = tmp_path / "partial-coverage"
+    generate_composite_dataset(CompositeGenerationRequest(
+        output, 1, 7, background_manifest, instances_per_image=(instances, instances),
+    ))
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    assert summary["projected_shortest_edge_source_px"] == {"counts": expected, "complete": False}
+    config = json.loads((output / "generation_config.json").read_text(encoding="utf-8"))
+    assert config["size_sampling"] == "projected-source-edge-round-robin-v1"
+
+
+def test_incompatible_scale_config_fails_without_partial_publication(tmp_path, background_manifest):
+    config = json.loads((ROOT / "configs/detection/composite_v1.json").read_text(encoding="utf-8"))
+    config["scale_range"] = [0.3, 0.45]
+    path = tmp_path / "medium-only.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    output = tmp_path / "unplaceable"
+    with pytest.raises(composite_module.CompositeGenerationError, match="16to31"):
+        generate_composite_dataset(CompositeGenerationRequest(
+            output, 3, 7, background_manifest, config_path=path,
+        ))
+    assert not output.exists()
+    assert not list(tmp_path.glob(".unplaceable.partial-*"))
+
+
 def test_background_hash_mismatch_leaves_no_output_or_staging(
     tmp_path, background_manifest
 ):

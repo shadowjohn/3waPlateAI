@@ -35,6 +35,39 @@ def rewrite_record(root, mutate):
     record = json.loads(path.read_text(encoding="utf-8"))
     mutate(record)
     path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    # These hand-authored fixtures are no longer outputs of round-robin sampling.
+    # Keep the original v1 provenance format, which the loader must still accept.
+    _use_legacy_provenance(root)
+
+
+def _use_legacy_provenance(root):
+    for name, field in (("generation_config.json", "size_sampling"), ("summary.json", "projected_shortest_edge_source_px")):
+        path = root / name
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document.pop(field, None)
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_loads_new_size_coverage_and_legacy_v1_provenance(tmp_path):
+    root = make_dataset(tmp_path)
+    assert len(DetectionDataset(root)) == 1
+    _use_legacy_provenance(root)
+    assert len(DetectionDataset(root)) == 1
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda r: r.update(complete=True),
+    lambda r: r["counts"].update({"16to31": True}),
+    lambda r: r["counts"].update({"16to31": 0, "32to63": 1}),
+])
+def test_rejects_false_size_coverage_provenance(tmp_path, mutation):
+    root = make_dataset(tmp_path)
+    path = root / "summary.json"
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    mutation(summary["projected_shortest_edge_source_px"])
+    path.write_text(json.dumps(summary), encoding="utf-8")
+    with pytest.raises(DetectionDataError, match="coverage"):
+        DetectionDataset(root)
 
 
 def test_letterboxes_pixels_bbox_and_all_semantic_corners(tmp_path):

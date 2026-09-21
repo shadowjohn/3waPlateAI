@@ -117,6 +117,58 @@ def test_score_ranked_ap_counts_false_positives_and_empty_matches():
     assert empty["corner_error_640px"] is None
 
 
+def test_per_size_stratum_results_use_global_matches_and_count_false_positives():
+    from plateai_trainer.detection.contracts import CompositeInstance
+    small = np.float32([[30, 30], [90, 30], [90, 54], [30, 54]])
+    medium = np.float32([[140, 100], [240, 100], [240, 140], [140, 140]])
+    large = np.float32([[300, 200], [500, 200], [500, 280], [300, 280]])
+    truths = [CompositeInstance((30, 30, 90, 54), small, {}),
+              CompositeInstance((140, 100, 240, 140), medium, {}),
+              CompositeInstance((300, 200, 500, 280), large, {})]
+    good_small = np.r_[60, 42, 60, 24, .8, small.ravel()]
+    # Perfect medium bbox but corners predict a large, valid quad. Its result
+    # belongs to the matched medium GT, never to the predicted large stratum.
+    bad_medium = np.r_[190, 120, 100, 40, .7, (medium + [[0, 0], [0, 0], [0, 40], [0, 40]]).ravel()]
+    # High-score false positive with a small edge; M3a rejects its off-frame quad.
+    false_small = np.r_[20, 200, 60, 24, .9, (small - [40, 0]).ravel()]
+    rows = np.float32([false_small, good_small, good_small, bad_medium])
+    metrics = engine._prediction_metrics([rows], [truths])
+    sizes = metrics["stratum_results"]["projected_shortest_edge_640px"]
+    assert sizes["16to31"] == {
+        "instances": 1, "bbox_ap50": .5, "corner_error_640px": 0., "corner_matched_instances": 1,
+        "complete_quad_precision": .5, "complete_quad_recall": 1., "complete_quad_true_positives": 1,
+        "nms_predictions": 2, "rectifier_acceptance": .5, "rectifier_accepted": 1,
+    }
+    assert sizes["32to63"]["bbox_ap50"] == 1
+    assert sizes["32to63"]["corner_error_640px"] == 20
+    assert sizes["32to63"]["complete_quad_precision"] == 0
+    assert sizes["32to63"]["complete_quad_recall"] == 0
+    assert sizes["32to63"]["rectifier_acceptance"] == 1
+    assert sizes["ge64"]["instances"] == 1
+    assert sizes["ge64"]["bbox_ap50"] == 0
+    assert sizes["ge64"]["corner_error_640px"] is None
+    assert sizes["ge64"]["nms_predictions"] == 0
+    assert sizes["lt16"]["instances"] == 0
+    assert sizes["lt16"]["bbox_ap50"] == 0
+    assert sizes["lt16"]["corner_error_640px"] is None
+    assert sum(part["nms_predictions"] for part in sizes.values()) == metrics["nms_predictions"]
+
+
+@pytest.mark.parametrize("shortest,stratum", [(15, "lt16"), (16, "16to31"), (31.5, "16to31"), (32, "32to63"), (63.5, "32to63"), (64, "ge64")])
+def test_per_size_stratum_boundary_and_no_operating_predictions(shortest, stratum):
+    from plateai_trainer.detection.contracts import CompositeInstance
+    corners = np.float32([[100, 100], [300, 100], [300, 100 + shortest], [100, 100 + shortest]])
+    gt = CompositeInstance((100, 100, 300, 100 + shortest), corners, {})
+    row = np.float32([200, 100 + shortest / 2, 200, shortest, .1, *corners.ravel()])
+    metrics = engine._prediction_metrics([row[None]], [[gt]])
+    result = metrics["stratum_results"]["projected_shortest_edge_640px"][stratum]
+    assert result["instances"] == 1
+    assert result["bbox_ap50"] == 1
+    assert result["corner_error_640px"] is None
+    assert result["complete_quad_precision"] == result["complete_quad_recall"] == 0
+    assert result["rectifier_acceptance"] == result["nms_predictions"] == 0
+
+
 def test_publication_race_preserves_winner_and_removes_only_staging(tmp_path, monkeypatch):
     train = make_dataset(tmp_path)
     validation = make_dataset(tmp_path, "validation", color=21)

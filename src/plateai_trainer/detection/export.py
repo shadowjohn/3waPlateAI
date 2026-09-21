@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -45,8 +46,8 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _load_detector_checkpoint(path: Path) -> PlatePoseNet:
-    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+def _load_detector_checkpoint(snapshot: bytes) -> PlatePoseNet:
+    checkpoint = torch.load(io.BytesIO(snapshot), map_location="cpu", weights_only=True)
     expected = {"schema_version": 1, "architecture": "PlatePoseNet",
                 "input_shape": [3, 640, 640], "output_shape": [8400, 13],
                 "preprocess": "letterbox_rgb_v1", "corner_order": _KEYPOINTS}
@@ -112,14 +113,15 @@ def export_full_bundle(
     schema = _default_config_path("schemas/model_manifest.schema.json")
     crop_manifest = validate_crop_bundle(request.recognizer_bundle, schema)
     torch.set_num_threads(1)
-    model = _load_detector_checkpoint(request.detector_checkpoint)
+    checkpoint_bytes = request.detector_checkpoint.read_bytes()
+    model = _load_detector_checkpoint(checkpoint_bytes)
     report_bytes = request.detector_report.read_bytes()
     try:
         report = json.loads(report_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("detector report is not valid JSON") from exc
     if (not isinstance(report, dict) or report.get("schema_version") != 1
-            or report.get("checkpoint_sha256") != _sha(request.detector_checkpoint)):
+            or report.get("checkpoint_sha256") != hashlib.sha256(checkpoint_bytes).hexdigest()):
         raise ValueError("detector report does not match checkpoint")
     declarations = [crop_manifest["charset"], crop_manifest["rules"],
                     crop_manifest["components"]["recognizer"], crop_manifest["provenance"]["training_report"]]

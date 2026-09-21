@@ -56,8 +56,9 @@ def _hash(value) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
-def _fields(document, fields, name):
-    if not isinstance(document, dict) or set(document) != set(fields):
+def _fields(document, fields, name, optional=()):
+    if (not isinstance(document, dict) or not set(fields) <= set(document)
+            or not set(document) <= set(fields) | set(optional)):
         raise DetectionDataError(f"{name}: invalid fields")
 
 
@@ -108,6 +109,17 @@ class DetectionDataset:
             found = {path.resolve() for path in (self.root / "images").rglob("*") if path.is_file()}
             if expected != found:
                 raise DetectionDataError("images contains unlisted or missing files")
+            if "size_sampling" in config:
+                counts = {"16to31": 0, "32to63": 0, "ge64": 0}
+                for record in self._records:
+                    for instance in record["instances"]:
+                        corners = np.asarray(instance["corners"], dtype=np.float64)
+                        shortest = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1).min()
+                        if shortest < 16:
+                            raise DetectionDataError("size coverage contains an edge below 16 source pixels")
+                        counts["16to31" if shortest < 32 else "32to63" if shortest < 64 else "ge64"] += 1
+                if summary["projected_shortest_edge_source_px"]["counts"] != counts:
+                    raise DetectionDataError("size coverage does not match metadata")
         except (OSError, DocumentValidationError) as exc:
             raise DetectionDataError(str(exc)) from exc
         self.background_sha256s = frozenset(item["sha256"] for item in config["backgrounds"])
@@ -137,8 +149,20 @@ class DetectionDataset:
 
     @staticmethod
     def _validate_provenance(config, summary):
-        _fields(config, ("schema_version", "seed", "count", "instances_per_image", "composite_profile_id", "config_sha256", "backgrounds"), "generation_config")
-        _fields(summary, ("schema_version", "generated", "seed", "background_sha256s"), "summary")
+        _fields(config, ("schema_version", "seed", "count", "instances_per_image", "composite_profile_id", "config_sha256", "backgrounds"), "generation_config", ("size_sampling",))
+        _fields(summary, ("schema_version", "generated", "seed", "background_sha256s"), "summary", ("projected_shortest_edge_source_px",))
+        if ("size_sampling" in config) != ("projected_shortest_edge_source_px" in summary):
+            raise DetectionDataError("size coverage requires both policy and summary")
+        if "size_sampling" in config:
+            if config["size_sampling"] != "projected-source-edge-round-robin-v1":
+                raise DetectionDataError("unsupported size coverage policy")
+            coverage = summary["projected_shortest_edge_source_px"]
+            _fields(coverage, ("counts", "complete"), "size coverage")
+            _fields(coverage["counts"], ("16to31", "32to63", "ge64"), "size coverage counts")
+            if (any(type(value) is not int or value < 0 for value in coverage["counts"].values())
+                    or type(coverage["complete"]) is not bool
+                    or coverage["complete"] != all(value > 0 for value in coverage["counts"].values())):
+                raise DetectionDataError("invalid size coverage counts/complete")
         for doc in (config, summary):
             if type(doc["schema_version"]) is not int or doc["schema_version"] != 1 or type(doc["seed"]) is not int or doc["seed"] < 0:
                 raise DetectionDataError("invalid generation version/seed")

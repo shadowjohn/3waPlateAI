@@ -50,6 +50,13 @@ _METRIC_CONFIG = {
     "ap_method": "all-points interpolated precision envelope",
     "corner_error_population": "semantic corners of unique bbox AP50 matches at operating confidence; null if none",
     "rectifier_population": "all operating-confidence NMS survivors, M3a at 640x640 without clipping/reordering before handoff",
+    "size_strata": {
+        "coordinate_space": "640px letterbox; source composite strata can move after resizing",
+        "boundaries": "lt16: [0,16); 16to31: [16,32); 32to63: [32,64); ge64: [64,infinity)",
+        "matching": "same global per-image score-ranked one-to-one bbox IoU>=0.5 matching after NMS; lower GT index breaks IoU ties",
+        "population": "matched detections use GT projected shortest edge; unmatched false positives use predicted quad shortest edge; each detection belongs to exactly one stratum",
+        "empty_behavior": "AP50 and ratios with zero denominator are 0; corner error is null without operating-confidence matches; counts always included",
+    },
 }
 
 
@@ -74,28 +81,59 @@ def _nms(rows):
     return rows[selected], boxes[selected]
 
 
+def _edge_stratum(corners):
+    points = np.asarray(corners, dtype=np.float64)
+    shortest = float(np.linalg.norm(np.roll(points, -1, axis=0) - points, axis=1).min())
+    return "lt16" if shortest < 16 else "16to31" if shortest < 32 else "32to63" if shortest < 64 else "ge64"
+
+
+def _metric_population():
+    return {"detections": [], "total_gt": 0, "corner_errors": [],
+            "operating_count": 0, "quad_tp": 0, "accepted": 0}
+
+
+def _summarize_metrics(detections, total_gt, corner_errors, operating_count, quad_tp, accepted):
+    detections.sort(key=lambda item: (-item[0], item[1], item[2]))
+    tp = np.cumsum([item[3] for item in detections], dtype=np.float64)
+    recall = tp / max(total_gt, 1)
+    precision = tp / np.arange(1, len(tp) + 1)
+    recall = np.r_[0., recall, 1.]
+    precision = np.r_[0., precision, 0.]
+    precision = np.maximum.accumulate(precision[::-1])[::-1]
+    ap = float(np.sum(np.diff(recall) * precision[1:]))
+    return {"instances": total_gt, "bbox_ap50": ap,
+            "corner_error_640px": float(np.mean(corner_errors)) if corner_errors else None,
+            "corner_matched_instances": len(corner_errors) // 4,
+            "complete_quad_precision": quad_tp / operating_count if operating_count else 0.,
+            "complete_quad_recall": quad_tp / total_gt if total_gt else 0.,
+            "complete_quad_true_positives": quad_tp, "nms_predictions": operating_count,
+            "rectifier_acceptance": accepted / operating_count if operating_count else 0.,
+            "rectifier_accepted": accepted}
+
+
 def _prediction_metrics(predictions, truths):
     """Single-class, score-ranked one-to-one bbox AP and semantic quad metrics.
 
     A complete quad needs bbox IoU >= .5 and *each* semantic corner <= 8px.
     Missing matches yield null corner error, never a misleading perfect zero.
     """
-    detections, total_gt, operating_count, quad_tp, accepted = [], 0, 0, 0, 0
-    corner_errors = []
+    totals = _metric_population()
+    sizes = {name: _metric_population() for name in ("lt16", "16to31", "32to63", "ge64")}
     strata = {"instance_count": {"1": 0, "2": 0, "3": 0},
               "short_side_640px": {"lt64": 0, "64to128": 0, "ge128": 0},
               "projected_shortest_edge_640px": {"lt16": 0, "16to31": 0, "32to63": 0, "ge64": 0},
               "rotation_abs_degrees": {"lt15": 0, "15to30": 0, "ge30": 0}}
     dummy_rgb = np.zeros((640, 640, 3), dtype=np.uint8)
     for image_index, (rows, instances) in enumerate(zip(predictions, truths, strict=True)):
-        total_gt += len(instances)
+        totals["total_gt"] += len(instances)
         strata["instance_count"][str(len(instances))] += 1
         for instance in instances:
             box = instance.bbox_xyxy
             short = min(box[2] - box[0], box[3] - box[1])
             strata["short_side_640px"]["lt64" if short < 64 else "64to128" if short < 128 else "ge128"] += 1
-            shortest_edge = float(np.linalg.norm(np.roll(instance.corners_xy, -1, axis=0) - instance.corners_xy, axis=1).min())
-            strata["projected_shortest_edge_640px"]["lt16" if shortest_edge < 16 else "16to31" if shortest_edge < 32 else "32to63" if shortest_edge < 64 else "ge64"] += 1
+            size = _edge_stratum(instance.corners_xy)
+            strata["projected_shortest_edge_640px"][size] += 1
+            sizes[size]["total_gt"] += 1
             edge = instance.corners_xy[1] - instance.corners_xy[0]
             angle = abs(math.degrees(math.atan2(float(edge[1]), float(edge[0]))))
             strata["rotation_abs_degrees"]["lt15" if angle < 15 else "15to30" if angle < 30 else "ge30"] += 1
@@ -105,39 +143,34 @@ def _prediction_metrics(predictions, truths):
         for order, (row, box) in enumerate(zip(survivors, boxes, strict=True)):
             operating = row[4] >= _METRIC_CONFIG["operating_confidence"]
             corners = row[5:].reshape(4, 2)
+            accepted = 0
             if operating:
-                operating_count += 1
                 try:
                     rectify_plate(dummy_rgb, corners)
-                    accepted += 1
+                    accepted = 1
                 except InvalidCornersError:
                     pass
             overlaps = _iou(box, gt_boxes)
             best = max(sorted(remaining), key=lambda index: float(overlaps[index]), default=None)
             matched = best is not None and overlaps[best] >= _METRIC_CONFIG["match_iou"]
-            detections.append((float(row[4]), image_index, order, int(matched)))
+            size = _edge_stratum(instances[best].corners_xy if matched else corners)
+            errors = ()
+            quad_tp = 0
             if matched:
                 remaining.remove(best)
                 if operating:
                     errors = np.linalg.norm(corners - instances[best].corners_xy, axis=1)
-                    corner_errors.extend(float(value) for value in errors)
-                    quad_tp += int(np.all(errors <= _METRIC_CONFIG["complete_quad_max_corner_error_640px"]))
-    detections.sort(key=lambda item: (-item[0], item[1], item[2]))
-    tp = np.cumsum([item[3] for item in detections], dtype=np.float64)
-    recall = tp / max(total_gt, 1)
-    precision = tp / np.arange(1, len(tp) + 1)
-    recall = np.r_[0., recall, 1.]
-    precision = np.r_[0., precision, 0.]
-    precision = np.maximum.accumulate(precision[::-1])[::-1]
-    ap = float(np.sum(np.diff(recall) * precision[1:]))
-    return {"samples": len(truths), "instances": total_gt, "bbox_ap50": ap,
-            "corner_error_640px": float(np.mean(corner_errors)) if corner_errors else None,
-            "corner_matched_instances": len(corner_errors) // 4,
-            "complete_quad_precision": quad_tp / operating_count if operating_count else 0.,
-            "complete_quad_recall": quad_tp / total_gt if total_gt else 0.,
-            "complete_quad_true_positives": quad_tp, "nms_predictions": operating_count,
-            "rectifier_acceptance": accepted / operating_count if operating_count else 0.,
-            "rectifier_accepted": accepted, "strata": strata}
+                    quad_tp = int(np.all(errors <= _METRIC_CONFIG["complete_quad_max_corner_error_640px"]))
+            for population in (totals, sizes[size]):
+                population["detections"].append((float(row[4]), image_index, order, int(matched)))
+                population["corner_errors"].extend(float(value) for value in errors)
+                population["operating_count"] += int(operating)
+                population["quad_tp"] += quad_tp
+                population["accepted"] += accepted
+    return {"samples": len(truths), **_summarize_metrics(**totals), "strata": strata,
+            "stratum_results": {"projected_shortest_edge_640px": {
+                name: _summarize_metrics(**population) for name, population in sizes.items()
+            }}}
 
 
 def _collate(samples):

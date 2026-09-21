@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import importlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -224,3 +225,39 @@ def test_installed_detection_export_help_and_error(export_api, tmp_path):
     assert "--recognizer-bundle" in result.stdout
     cli = importlib.import_module("plateai_trainer.detection.export_cli")
     assert cli.main(["--recognizer-bundle", str(tmp_path), "--checkpoint", "missing.pt", "--report", "missing.json", "--output", str(tmp_path / "full")]) == 2
+
+
+def test_export_load_and_report_hash_share_snapshot_during_checkpoint_aba(export_api, local_runs, tmp_path, monkeypatch):
+    crop, run = local_runs
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    original = run.best_checkpoint.read_bytes()
+    checkpoint_path.write_bytes(original)
+    real_load = torch.load
+    expected = real_load(io.BytesIO(original), weights_only=True)
+    mutant = real_load(io.BytesIO(original), weights_only=True)
+    first_weight = next(iter(mutant["model_state_dict"]))
+    mutant["model_state_dict"][first_weight] += .01
+    stream = io.BytesIO()
+    torch.save(mutant, stream)
+
+    def aba_load(source, *args, **kwargs):
+        checkpoint_path.write_bytes(stream.getvalue())
+        try:
+            return real_load(source, *args, **kwargs)
+        finally:
+            checkpoint_path.write_bytes(original)
+
+    real_export = export_api._export_detector_onnx
+    def export_original_snapshot(model, path):
+        assert torch.equal(model.state_dict()[first_weight], expected["model_state_dict"][first_weight]), "export loaded B although report hashes A"
+        real_export(model, path)
+
+    monkeypatch.setattr(torch, "load", aba_load)
+    monkeypatch.setattr(export_api, "_export_detector_onnx", export_original_snapshot)
+    request = export_api.DetectionExportRequest(crop, checkpoint_path, run.report_path, tmp_path / "aba")
+    output = export_api.export_full_bundle(request)
+    manifest = bundle_validation.validate_model_bundle(output, SCHEMA)
+    assert manifest["capabilities"] == ["crop-recognition", "plate-detection"]
+    assert (output / "detector_report.json").read_bytes() == run.report_path.read_bytes()
+    assert checkpoint_path.read_bytes() == original
+    assert not list(tmp_path.glob(".aba.partial-*"))

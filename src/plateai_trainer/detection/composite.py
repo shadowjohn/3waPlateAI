@@ -60,6 +60,9 @@ class _CompositeConfig:
     placement_attempts: int
 
 
+_SIZE_STRATA = (("16to31", 16.0, 32.0), ("32to63", 32.0, 64.0), ("ge64", 64.0, math.inf))
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -306,11 +309,11 @@ def _sample_homography(
     canvas_width: int,
     canvas_height: int,
     config: _CompositeConfig,
+    size_stratum: tuple[str, float, float],
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]] | None:
-    scale = float(rng.uniform(*config.scale_range))
     angle = math.radians(float(rng.uniform(*config.rotation_degrees)))
     center = np.mean(source_corners, axis=0)
-    centered = (source_corners - center) * scale
+    centered = source_corners - center
     rotation = np.asarray(
         [[math.cos(angle), -math.sin(angle)], [math.sin(angle), math.cos(angle)]],
         dtype=np.float32,
@@ -320,6 +323,15 @@ def _sample_homography(
         float(np.ptp(destination[:, 0])), float(np.ptp(destination[:, 1]))
     ) * config.perspective_jitter_ratio
     destination += rng.uniform(-jitter, jitter, size=(4, 2)).astype(np.float32)
+    # Condition scale on the actual perturbed edges, not the nominal plate
+    # height. A small margin prevents float32 placement rounding across bins.
+    shortest = float(np.linalg.norm(np.roll(destination, -1, axis=0) - destination, axis=1).min())
+    _, lower, upper = size_stratum
+    scale_low = max(config.scale_range[0], (lower + 1e-3) / shortest)
+    scale_high = min(config.scale_range[1], (upper - 1e-3) / shortest)
+    if scale_low > scale_high:
+        return None
+    destination *= float(rng.uniform(scale_low, scale_high))
     minimum = np.min(destination, axis=0)
     maximum = np.max(destination, axis=0)
     available_x = canvas_width - 1.0 - float(maximum[0] - minimum[0])
@@ -345,6 +357,9 @@ def _sample_homography(
         source_corners[None, :, :], homography
     )[0].astype(np.float32)
     if not np.isfinite(transformed).all():
+        return None
+    actual_shortest = float(np.linalg.norm(np.roll(transformed, -1, axis=0) - transformed, axis=1).min())
+    if not lower <= actual_shortest < upper:
         return None
     return homography.astype(np.float32), transformed
 
@@ -386,6 +401,7 @@ def _compose_one_image(
     ruleset,
     template,
     font,
+    instance_offset: int,
 ) -> dict[str, Any]:
     background = backgrounds[int(rng.integers(0, len(backgrounds)))]
     canvas = background.image_rgb.copy()
@@ -395,7 +411,8 @@ def _compose_one_image(
     )
     instances: list[dict[str, Any]] = []
     accepted_boxes: list[tuple[float, float, float, float]] = []
-    for _ in range(instance_count):
+    for instance_index in range(instance_count):
+        size_stratum = _SIZE_STRATA[(instance_offset + instance_index) % len(_SIZE_STRATA)]
         plate_seed = int(rng.integers(0, np.iinfo(np.uint64).max, dtype=np.uint64))
         sample = generate_plate(ruleset, random.Random(plate_seed))
         rendered = render_plate(sample, template, font)
@@ -407,6 +424,7 @@ def _compose_one_image(
                 canvas_width,
                 canvas_height,
                 config,
+                size_stratum,
             )
             if candidate is None:
                 continue
@@ -418,7 +436,8 @@ def _compose_one_image(
         if placement is None:
             raise CompositeGenerationError(
                 f"could not place {instance_count} non-overlapping plates on "
-                f"{background.manifest_path} after {config.placement_attempts} attempts"
+                f"{background.manifest_path} in projected-edge stratum {size_stratum[0]} "
+                f"after {config.placement_attempts} attempts"
             )
         homography, transformed, candidate_box = placement
         _composite_plate(canvas, rendered.image_rgb, homography)
@@ -526,8 +545,10 @@ def generate_composite_dataset(
         rng = np.random.default_rng(request.seed)
         staging = _create_owned_staging(request.output)
         try:
-            records = [
-                _compose_one_image(
+            records = []
+            instance_offset = 0
+            for index in range(request.count):
+                record = _compose_one_image(
                     backgrounds,
                     rng,
                     request,
@@ -537,9 +558,10 @@ def generate_composite_dataset(
                     ruleset,
                     template,
                     font,
+                    instance_offset,
                 )
-                for index in range(request.count)
-            ]
+                records.append(record)
+                instance_offset += len(record["instances"])
             _write_jsonl(staging / "metadata.jsonl", records)
             _verify_input_hashes(request, source_font, hashes)
             generation_config = {
@@ -548,6 +570,7 @@ def generate_composite_dataset(
                 "count": request.count,
                 "instances_per_image": list(request.instances_per_image),
                 "composite_profile_id": config.id,
+                "size_sampling": "projected-source-edge-round-robin-v1",
                 "config_sha256": hashes,
                 "backgrounds": [
                     {"image_path": item.manifest_path, "sha256": item.sha256}
@@ -561,6 +584,13 @@ def generate_composite_dataset(
                 "schema_version": 1,
                 "generated": request.count,
                 "seed": request.seed,
+                "projected_shortest_edge_source_px": {
+                    "counts": {
+                        name: (instance_offset + len(_SIZE_STRATA) - 1 - index) // len(_SIZE_STRATA)
+                        for index, (name, _, _) in enumerate(_SIZE_STRATA)
+                    },
+                    "complete": instance_offset >= len(_SIZE_STRATA),
+                },
                 "background_sha256s": sorted(
                     {item.sha256 for item in backgrounds}
                 ),

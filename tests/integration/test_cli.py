@@ -15,6 +15,10 @@ def venv_scripts() -> Path:
     return Path(sys.executable).parent
 
 
+def detector_executable(command: str) -> Path:
+    return venv_scripts() / (command + (".exe" if sys.platform == "win32" else ""))
+
+
 def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "plateai_trainer.synthetic", *args],
@@ -100,9 +104,18 @@ def test_default_config_path_falls_back_to_installed_data(monkeypatch, tmp_path)
 
 @pytest.mark.parametrize(
     "executable",
-    ("plateai-compose.exe", "plateai-detect-train.exe", "plateai-detect-export.exe"),
+    ("plateai-compose", "plateai-detect-train", "plateai-detect-export"),
 )
 def test_detector_cli_help_is_installed(executable):
-    result = subprocess.run([venv_scripts() / executable, "--help"], capture_output=True, text=True)
+    result = subprocess.run([detector_executable(executable), "--help"], capture_output=True, text=True)
     assert result.returncode == 0
     assert "usage:" in result.stdout.lower()
+
+
+@pytest.mark.parametrize("platform,suffix", [("win32", ".exe"), ("linux", "")])
+@pytest.mark.parametrize("command", ["plateai-compose", "plateai-detect-train", "plateai-detect-export"])
+def test_detector_command_path_uses_platform_entry_point(monkeypatch, platform, suffix, command):
+    with monkeypatch.context() as context:
+        context.setattr(sys, "platform", platform)
+        executable = detector_executable(command)
+    assert executable == Path(sys.executable).with_name(command + suffix)
