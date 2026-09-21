@@ -23,6 +23,7 @@ plateai-export = "plateai_trainer.export.cli:main"
 plateai-compose = "plateai_trainer.detection.cli:main"
 plateai-detect-train = "plateai_trainer.detection.train_cli:main"
 plateai-detect-export = "plateai_trainer.detection.export_cli:main"
+plateai-read = "plateai_reader.cli:main"
 
 [project.optional-dependencies]
 test = [
@@ -35,6 +36,10 @@ training = [
   "onnx==1.23.0",
   "onnxruntime==1.30.0",
   "onnxscript==0.7.2",
+]
+reader = [
+  "onnx==1.23.0",
+  "onnxruntime==1.30.0",
 ]
 
 [tool.setuptools.packages.find]

@@ -118,6 +118,13 @@ try {
         Write-Host "Installing built wheel: $($Wheel.Name)"
         Invoke-Checked -FilePath $PythonPath -ArgumentList @('-m', 'pip', 'install', '--force-reinstall', '--no-deps', $Wheel.FullName)
 
+        $ReaderCommand = Join-Path $VenvPath 'Scripts\plateai-read.exe'
+        if (-not (Test-Path -LiteralPath $ReaderCommand)) {
+            throw 'The built wheel did not install plateai-read.exe.'
+        }
+        Write-Host 'Checking the installed Reader command...'
+        Invoke-Checked -FilePath $ReaderCommand -ArgumentList @('--help')
+
         $SmokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "3wa-plate-ai-build-$PID"
         try {
             Write-Host 'Running installed-package smoke generation...'

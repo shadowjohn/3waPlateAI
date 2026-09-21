@@ -37,6 +37,29 @@ Full-bundle export reads one immutable checkpoint byte snapshot. Both model load
 
 This is source-tree and local-package acceptance only. No background, weight, checkpoint, ONNX artifact, TensorRT benchmark, browser integration, remote CI result, real-image metric, or production recognition metric is bundled or verified by this repository.
 
+## Local M4 Reader
+
+After `plateai-detect-export` has produced a local full bundle, run the Reader
+against a local image with persistent ONNX Runtime sessions:
+
+```powershell
+.\.venv\Scripts\plateai-read --bundle models\bundles\v1-full-local --image C:\local\frame.png --warmup 5
+```
+
+By default the Reader uses the first available provider order TensorRT, CUDA,
+then CPU. Repeat `--provider` to explicitly control a provider/fallback order.
+It validates every declared bundle file and both ONNX contracts before opening
+sessions, then preserves retained NMS order, isolates an invalid four-corner
+rectification, chunks valid crops by the manifest's dynamic batch maximum, and
+CTC-decodes only strings permitted by the bundled plate rules. The JSON output
+records individual detections/rejections and actual detector, rectifier, and
+recognizer timings; it is not a benchmark report or accuracy claim.
+
+The `reader` extra contains the ONNX and ONNX Runtime dependencies without
+PyTorch: `python -m pip install ".[reader]"`. The existing `training` extra
+also includes them for a compose/train/export/Reader workstation. No full
+bundle, real frame, performance result, or production service is committed.
+
 ## Generate a dataset
 
 From an installed development environment:

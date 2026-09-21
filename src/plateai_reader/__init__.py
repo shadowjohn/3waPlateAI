@@ -14,16 +14,36 @@ from .rectifier import (
     normalize_corners,
     rectify_plate,
 )
+from .runtime import (
+    DecodedPlate,
+    PlateRead,
+    PlateReader,
+    ReaderError,
+    ReaderRejection,
+    ReaderResult,
+    ReaderTiming,
+    decode_constrained_ctc_v1,
+    select_ort_providers,
+)
 
 __all__ = [
     "DetectionRectificationResult",
     "DetectionRejection",
+    "DecodedPlate",
     "InvalidCornersError",
     "NormalizedCorners",
+    "PlateRead",
+    "PlateReader",
     "RectifiedPlate",
+    "ReaderError",
+    "ReaderRejection",
+    "ReaderResult",
+    "ReaderTiming",
+    "decode_constrained_ctc_v1",
     "numpy_nms_v1",
     "normalize_corners",
     "postprocess_candidates",
     "rectify_detections",
     "rectify_plate",
+    "select_ort_providers",
 ]

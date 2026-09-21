@@ -104,7 +104,7 @@ def test_default_config_path_falls_back_to_installed_data(monkeypatch, tmp_path)
 
 @pytest.mark.parametrize(
     "executable",
-    ("plateai-compose", "plateai-detect-train", "plateai-detect-export"),
+    ("plateai-compose", "plateai-detect-train", "plateai-detect-export", "plateai-read"),
 )
 def test_detector_cli_help_is_installed(executable):
     result = subprocess.run([detector_executable(executable), "--help"], capture_output=True, text=True)
@@ -113,7 +113,7 @@ def test_detector_cli_help_is_installed(executable):
 
 
 @pytest.mark.parametrize("platform,suffix", [("win32", ".exe"), ("linux", "")])
-@pytest.mark.parametrize("command", ["plateai-compose", "plateai-detect-train", "plateai-detect-export"])
+@pytest.mark.parametrize("command", ["plateai-compose", "plateai-detect-train", "plateai-detect-export", "plateai-read"])
 def test_detector_command_path_uses_platform_entry_point(monkeypatch, platform, suffix, command):
     with monkeypatch.context() as context:
         context.setattr(sys, "platform", platform)

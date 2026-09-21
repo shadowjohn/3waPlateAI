@@ -4,7 +4,7 @@
 
 The public repository is deliberately source-only. It contains the code, schemas, configuration, documentation, and four harmless synthetic CI fixtures, but official repositories and releases publish **no checkpoints, trained weights, ONNX models, TensorRT engines, or Model Bundles**. Data rights, legal review, compute, training, tuning, and maintenance of every resulting model remain with the user.
 
-M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC training and ONNX export, M3a provides the deterministic four-corner rectifier, and M3b provides a local native pose-detector workflow. Complete Reader inference and serving remain later milestones; see the approved [design specification](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md).
+M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC training and ONNX export, M3a provides the deterministic four-corner rectifier, M3b provides a local native pose-detector workflow, and M4 provides the local full-bundle Reader core. Benchmark reporting and serving remain later work; see the approved [design specification](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md).
 
 ## What is here
 
@@ -12,7 +12,7 @@ M1 delivers deterministic CPU recognizer crops, M2 provides local PyTorch CTC tr
 |---|---|---|
 | `plateai_shared` | Immutable rules and JSON contracts shared across training and inference | Available |
 | `plateai_trainer.synthetic` | Rule sampling, clean rendering, deterministic augmentation, and transactional dataset output | Available |
-| `plateai_reader` | Four-corner geometric normalization and local detector postprocessing; batched recognition and constrained decoding follow later | M3a rectifier and M3b detector handoff available |
+| `plateai_reader` | Validated local ONNX sessions, detector postprocessing, rectification, manifest-driven recognition batching, and constrained CTC decoding | M4 local Reader core available; no model bundle published |
 | Model Bundle | Hash-verified model, charset, rule, tensor, batch, decoder, and rectifier contract | Schema available; no bundle published |
 
 ## Quick start
@@ -30,9 +30,9 @@ From PowerShell, run:
 `build.ps1` creates the ignored `.venv` with CPython 3.11 (using `uv` when it
 is available, otherwise the `py -3.11` launcher), installs the exact locked
 training/test dependencies, runs the complete test suite, builds `dist/`,
-force-installs the newly built wheel, runs the three-image installed-package
-smoke generation, and finishes with `pip check`. `build.bat` is a cmd/double-
-click wrapper for the same command.
+force-installs the newly built wheel, verifies `plateai-read --help`, runs the
+three-image installed-package smoke generation, and finishes with `pip check`.
+`build.bat` is a cmd/double-click wrapper for the same command.
 
 Useful variants are `.\build.ps1 -BootstrapOnly` to create/update the local
 environment only, `.\build.ps1 -SkipTests`, `.\build.ps1 -SkipPackage`, and
@@ -88,6 +88,25 @@ The only warp targets discrete destination pixels `(0,0)`, `(379,0)`, `(379,159)
 M3b is a local-only workflow for a user-provided, lawfully usable background manifest. The native detector accepts a 640x640 OpenCV RGB letterbox input and emits pre-NMS candidates shaped `[batch,8400,13]`. After deterministic NMS, each retained four-corner detection is independently passed to M3a's fixed RGB `380x160` crop rectifier, so one invalid pose does not prevent other retained detections from reaching the recognizer boundary.
 
 Run composition, detector training, and full-bundle export from an installed training environment as documented in [the detector workflow](docs/training.md#local-m3b-detector-workflow). Source-tree acceptance deliberately includes no bundled background, detector weight, ONNX artifact, TensorRT benchmark, browser integration, or production recognition metric.
+
+## M4 local Reader
+
+`plateai-read` loads a user-trained local full bundle only after verifying its
+manifest, declared file hashes, and ONNX contracts. It keeps detector and
+recognizer ONNX Runtime sessions alive, prioritizes TensorRT, CUDA, then CPU
+when the provider is not explicitly selected, applies deterministic NMS and
+rectification, batches canonical crops according to the recognizer manifest,
+and uses rule-constrained CTC decoding. For example:
+
+```powershell
+.\.venv\Scripts\plateai-read --bundle models\bundles\v1-full-local --image C:\local\frame.png --warmup 5
+```
+
+The command writes JSON containing retained detections, isolated rejections,
+canonical/display text, detection confidence, and observed per-stage timings.
+Those timings are local measurements, not a GPU or field-accuracy claim. The
+repository still contains no full bundle, ONNX model, real image, or benchmark
+result.
 
 ## Train your own model
 
