@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "3waPlateAI detection composite metadata record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "index", "image_path", "image_sha256", "background", "instances"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "index": {"type": "integer", "minimum": 0},
+    "image_path": {"type": "string", "pattern": "^images/[0-9]{6,}\\.png$"},
+    "image_sha256": {"$ref": "#/$defs/sha256"},
+    "background": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image_path", "sha256", "width", "height"],
+      "properties": {
+        "image_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "instances": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bbox_xyxy", "corners", "source_plate", "transform"],
+        "properties": {
+          "bbox_xyxy": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number", "minimum": 0}
+          },
+          "corners": {"$ref": "#/$defs/quad"},
+          "source_plate": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["canonical", "display", "rule_id", "plate_type", "template_id", "corners", "renderer"],
+            "properties": {
+              "canonical": {"type": "string", "minLength": 1},
+              "display": {"type": "string", "minLength": 1},
+              "rule_id": {"type": "string", "minLength": 1},
+              "plate_type": {"type": "string", "minLength": 1},
+              "template_id": {"type": "string", "minLength": 1},
+              "corners": {"$ref": "#/$defs/quad"},
+              "renderer": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["font_kind", "font_name", "font_variation_axes"],
+                "properties": {
+                  "font_kind": {"enum": ["hershey", "truetype"]},
+                  "font_name": {"type": "string", "minLength": 1},
+                  "font_variation_axes": {"type": "array", "items": {"type": "integer"}}
+                }
+              }
+            }
+          },
+          "transform": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["homography"],
+            "properties": {
+              "homography": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {"type": "number"}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "point": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "number", "minimum": 0}
+    },
+    "quad": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/point"}
+    }
+  }
+}

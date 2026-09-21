@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "id": "composite-v1",
+  "scale_range": [0.3, 0.45],
+  "rotation_degrees": [-12.0, 12.0],
+  "perspective_jitter_ratio": 0.04,
+  "placement_attempts": 300
+}
