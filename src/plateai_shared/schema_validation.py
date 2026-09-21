@@ -114,30 +114,40 @@ def validate_model_manifest(
             "charset.visible_symbols: visible symbol count must be positive"
         )
 
-    components = document["components"]
-    recognizer = components["recognizer"]
-    batch = recognizer["batch"]
-    if batch["mode"] == "dynamic" and not (
-        batch["min"] <= batch["opt"] <= batch["max"]
-    ):
+    if document["plate_size"] != [380, 160]:
+        raise DocumentValidationError("plate_size: must equal [380, 160] for v1")
+
+    recognizer = document["components"]["recognizer"]
+    expected_inputs = [
+        {"name": "input", "dtype": "float32", "shape": ["batch", 1, 64, 160]}
+    ]
+    if recognizer["inputs"] != expected_inputs:
         raise DocumentValidationError(
-            "components.recognizer.batch: dynamic sizes must satisfy min <= opt <= max"
+            "components.recognizer.inputs: must equal the v1 NCHW input tensor"
+        )
+    expected_outputs = [
+        {"name": "logits", "dtype": "float32", "shape": ["batch", 80, 34]}
+    ]
+    if recognizer["outputs"] != expected_outputs:
+        raise DocumentValidationError(
+            "components.recognizer.outputs: must equal the v1 80-step logits tensor"
+        )
+    expected_batch = {"mode": "dynamic", "min": 1, "opt": 8, "max": 32}
+    if recognizer["batch"] != expected_batch:
+        raise DocumentValidationError(
+            "components.recognizer.batch: must equal the v1 dynamic batch contract"
         )
 
     decoder = document["decoder"]
-    blank_index = decoder["blank_index"]
-    class_count = decoder["class_count"]
-    if not 0 <= blank_index < class_count:
-        raise DocumentValidationError(
-            "decoder.blank_index: must be within the declared class range"
-        )
-    expected_class_count = visible_charset_symbol_count + 1
-    if class_count != expected_class_count:
-        raise DocumentValidationError(
-            "decoder.class_count: must equal visible charset symbols plus one CTC blank"
-        )
+    if decoder["blank_index"] != 0:
+        raise DocumentValidationError("decoder.blank_index: must equal 0 for CTC")
     manifest_visible = document["charset"]["visible_symbols"]
     if manifest_visible != visible_charset_symbol_count:
         raise DocumentValidationError(
             "charset.visible_symbols: does not match the supplied charset"
+        )
+    expected_class_count = visible_charset_symbol_count + 1
+    if decoder["class_count"] != expected_class_count or expected_class_count != 34:
+        raise DocumentValidationError(
+            "decoder.class_count: must equal 34 (33 visible symbols plus blank)"
         )

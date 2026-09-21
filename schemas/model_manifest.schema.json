@@ -66,20 +66,63 @@
     "preprocess": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["color_order", "dtype", "scale"],
+      "required": ["source_size_wh", "color_space", "layout", "input_size_hw", "grayscale", "resize", "normalization"],
       "properties": {
-        "color_order": {"enum": ["RGB", "BGR"]},
-        "dtype": {"enum": ["float32", "float16", "uint8"]},
-        "scale": {"type": "number", "exclusiveMinimum": 0}
+        "source_size_wh": {"const": [380, 160]},
+        "color_space": {"const": "grayscale"},
+        "layout": {"const": "NCHW"},
+        "input_size_hw": {"const": [64, 160]},
+        "grayscale": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reference", "library_version"],
+          "properties": {
+            "reference": {"const": "pillow-image-convert-l"},
+            "library_version": {"const": "12.3.0"}
+          }
+        },
+        "resize": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "reference", "interpolation", "library_version", "resized_size_hw", "padding_ltrb", "padding_raw_value"],
+          "properties": {
+            "mode": {"const": "letterbox"},
+            "reference": {"const": "pillow-image-resize"},
+            "interpolation": {"const": "Resampling.BILINEAR"},
+            "library_version": {"const": "12.3.0"},
+            "resized_size_hw": {"const": [64, 152]},
+            "padding_ltrb": {"const": [4, 0, 4, 0]},
+            "padding_raw_value": {"const": 255}
+          }
+        },
+        "normalization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "divisor", "dtype"],
+          "properties": {
+            "type": {"const": "divide"},
+            "divisor": {"const": 255.0},
+            "dtype": {"const": "float32"}
+          }
+        }
       }
     },
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["training_data", "license_reviewed"],
+      "required": ["training_data", "license_reviewed", "training_report"],
       "properties": {
         "training_data": {"enum": ["synthetic", "mixed", "real"]},
-        "license_reviewed": {"type": "boolean"}
+        "license_reviewed": {"type": "boolean"},
+        "training_report": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "sha256"],
+          "properties": {
+            "file": {"$ref": "#/$defs/file_name"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
       }
     },
     "rectifier": {
