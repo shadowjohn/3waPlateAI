@@ -13,6 +13,12 @@ Install the isolated training stack, generate train/validation sets with differe
 .\.venv\Scripts\plateai-export --checkpoint runs\v1-cpu\best.pt --report runs\v1-cpu\report.json --output models\bundles\v1-local
 ```
 
+### GPU acceleration and PyTorch CUDA builds
+
+- **NVIDIA GTX 1080 (Pascal)**: Requires PyTorch built with **`cu118`** (CUDA 11.8). Newer CUDA versions may omit sm_61 architecture support.
+- **NVIDIA RTX 5060, RTX 5090 (Blackwell)**: Requires PyTorch built with **`cu128`** (CUDA 12.8+) to target the latest architecture.
+- **CPU default**: The locked dependency file (`requirements/py311.training.lock.txt`) installs CPU `torch==2.14.0` for deterministic test verification and CI runs.
+
 ### Character sets and logit classes
 
 - **Legacy v1 baseline** (`configs/charsets/tw_new_style_private_passenger_v1.txt`): 33 visible symbols (`0-9` without `4`, `A-Z` without `I` or `O`), `blank_index = 0`, and 34 logits classes (`[batch, 80, 34]`).

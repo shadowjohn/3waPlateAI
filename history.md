@@ -160,3 +160,23 @@ This file is an append-only record of important implementation decisions, local 
 - `README.md` is now maintained in Traditional Chinese and links the source-only boundary, Windows build gate, Taiwan-font generation command, motorcycle profile constraints, local training, Reader, and evaluation-source guidance.
 - Fresh local Windows verification: focused font/CLI/motorcycle tests passed `29 passed in 14.45s`; the complete `build.ps1` gate passed `292 passed in 198.75s`, built `3wa_plate_ai-0.1.0.dev0.tar.gz` and `3wa_plate_ai-0.1.0.dev0-py3-none-any.whl`, force-installed the wheel, completed installed Reader and three-image generator smoke checks, and reported `No broken requirements found`. From outside the source checkout, the wheel-installed `plateai-generate` successfully generated a one-image run with `--font taiwan_plate` and recorded the expected font identity/hash.
 - Not verified: exact official glyph equivalence, permission for broad redistribution of reference-derived material, real-photo recognition accuracy, motorcycle allocation/prefix correctness beyond the configured visual categories, remote CI, GPU/TensorRT, web/API/IIS/DB, or production deployment.
+
+## 2026-09-22 - Direction 1 & 3: Unified standard profile, full model training, export parity, and PyTorch GPU guidance
+
+- **Direction 3 (Unified standard profile & strict contracts)**:
+  - Extended character set (`configs/charsets/tw_standard_v1.txt`) to 34 visible symbols (including `4`), yielding 35 CTC classes (`[batch, 80, 35]`).
+  - Added unified plate rules (`configs/plate_rules/tw_standard_v1.json`) covering 11 formats (new-style 7-digit, legacy 6-digit `LL-DDDD` / `DDDD-LL`, motorcycle `LLL-DDD`, `DDD-LLL`, `LLD-DDD`, `DLL-DDD`, and legacy 5/4-digit).
+  - Enforced strict contract validation in `M1CropDataset`: validates that `rule_id` exists in the enabled ruleset, matches `plate_type`, validates canonical character tokens and length, and checks display separator placement.
+- **Direction 1 (End-to-end model training and ONNX export)**:
+  - Synthesized 8,000 training crops and 1,000 validation crops balanced across all 11 standard rules using `TaiwanPlate-Regular.ttf`.
+  - Trained `PlateCTCNet` with 35 classes, achieving 100.0% exact plate accuracy on validation (1,000 / 1,000, loss: 0.00095).
+  - Exported recognizer crop bundle `models/bundles/tw-std-v1-recognizer` (600 KB) with verified PyTorch / ONNX Runtime numerical parity.
+  - Generated deterministic disjoint background sets via `tools/generate_backgrounds.py`, synthesized 1,000 training and 200 validation composite multi-plate scenes.
+  - Trained `PlatePoseNet` multi-plate detector (best epoch 5, validation `bbox_ap50 = 0.438`), exported full model bundle `models/bundles/tw-std-v1-full` (detector: 2.17 MB, recognizer: 600 KB).
+  - Fixed `PlateReader` crop batching (`np.stack` instead of `np.concatenate`) to preserve rank-4 `[batch, 1, 64, 160]`, and handled Windows console UTF-8 reconfigure.
+  - Validated inference on test plates (`LAB-6531`, `LAG-5618`, `XHU-013`, `HJ9-037`, `AQ-560` inverted) with 100% exact match under constrained CTC.
+- **PyTorch GPU hardware guidance**:
+  - NVIDIA GTX 1080 (Pascal architecture, Compute Capability 6.1) requires PyTorch built with **`cu118`** (CUDA 11.8).
+  - NVIDIA RTX 5060, RTX 5090 (Blackwell architecture) requires PyTorch built with **`cu128`** (CUDA 12.8+).
+  - The clean source checkout and deterministic testing/build gate lock remain pinned to CPU `torch==2.14.0`.
+- Fresh local verification: all 302 unit, integration, and contract tests pass in 216s.

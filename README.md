@@ -45,6 +45,13 @@ python -m pytest
 
 生成器拒絕覆寫既有輸出目錄。輸出採交易式發布：失敗時只清除自己建立的暫存目錄，不會移除不相干檔案。
 
+### PyTorch 與 GPU 顯卡版本支援
+
+若要在本機使用 GPU 加速訓練（例如 `plateai-train --device cuda`）：
+- **舊架構顯卡 (如 GTX 1080 / Pascal)**：PyTorch 請選用 **`cu118`** (CUDA 11.8) 建置版本（例如 `torch==2.5.1+cu118`）。若使用較新的 CUDA 版本可能缺少 sm_61 算力支援而無法啟動。
+- **新架構顯卡 (如 RTX 5060、RTX 5090 / Blackwell)**：請選用 **`cu128`** (CUDA 12.8+) 或支援 Blackwell 新架構的最新 PyTorch 建置版本。
+- **CPU 開發環境**：官方依賴鎖定檔 (`requirements/py311.training.lock.txt`) 採用純 CPU 依賴 (`torch==2.14.0`)，適合無獨立顯卡或 CI 環境運行全流程測試與確定性合成。
+
 ## M1 合成車牌資料
 
 - 預設輸出 RGB `uint8` 的 380×160 PNG，對應新式自用小客車比例，並記錄來源或變換後的四角點。
