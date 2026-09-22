@@ -52,7 +52,9 @@ def generate_dataset_task(
     if not rules_path.exists():
         rules_path = root / "configs" / "plate_rules" / "tw_new_style_private_passenger_v1.json"
 
-    template_path = root / "configs" / "plate_templates" / "new_style_private_passenger_white_v1.json"
+    template_path = root / "configs" / "plate_templates" / "tw_unified_v1.json"
+    if not template_path.exists():
+        template_path = root / "configs" / "plate_templates" / "new_style_private_passenger_white_v1.json"
     augmentation_path = root / "configs" / "augmentation" / "standard_v1.json"
 
     request = GenerationRequest(

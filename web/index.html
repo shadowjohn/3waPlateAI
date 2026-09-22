@@ -437,8 +437,8 @@
                 <div class="drop-icon">📁</div>
                 <div class="drop-text">拖拉圖片到這裡、點擊上傳、或直接按下 Ctrl+V 貼上截圖</div>
                 <div class="drop-sub">支援 JPG、PNG、WEBP 格式，立即自動辨識並標繪邊框</div>
-                <input type="file" id="file-input" style="display: none;" accept="image/*">
             </div>
+            <input type="file" id="file-input" style="display: none;" accept="image/*">
 
             <div id="infer-loading" class="text-center py-2 text-primary fw-bold" style="display: none;">
                 <div class="spinner-border spinner-border-sm me-2" role="status"></div>
@@ -495,7 +495,7 @@
                                         <th>送審裁切圖</th>
                                         <th>車牌 (預測)</th>
                                         <th>Greedy 原文</th>
-                                        <th>信心度</th>
+                                        <th title="未經實拍校準，不代表辨識正確率">OCR 分數</th>
                                         <th>階段耗時</th>
                                     </tr>
                                 </thead>

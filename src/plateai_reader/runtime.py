@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from pathlib import Path
 import sysconfig
@@ -58,6 +58,10 @@ class PlateRead:
 
     detection: PlateDetection
     decoded: DecodedPlate
+    raw_greedy_text: str | None = None
+    crop_rgb: NDArray[np.uint8] | None = field(default=None, repr=False, compare=False)
+    ctc_decoding_ms: float = 0.0
+    recognition_batch_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +83,9 @@ class ReaderTiming:
     retained_detection_count: int
     rectified_plate_count: int
     recognition_batch_sizes: tuple[int, ...]
+    onnx_inference_ms: float = 0.0
+    ctc_decoding_ms: float = 0.0
+    preprocess_ms: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,37 +186,67 @@ def decode_constrained_ctc_v1(
             token_indices.append(tuple(codec.index_by_symbol[symbol] for symbol in symbols))
         allowed_indices.append(tuple(token_indices))
 
+    # A unique greedy path is the global Viterbi optimum. If it satisfies a
+    # rule, searching alternative paths cannot improve it. Tied frame maxima
+    # use the DP below to preserve the canonical/rule-id tie contract.
+    log_probabilities_all = np.stack([_log_softmax(row) for row in values])
+    best = values.argmax(axis=1)
+    greedy = codec.decode_greedy(best.tolist())
+    compatible = [
+        index for index, tokens in enumerate(allowed_indices)
+        if len(tokens) == len(greedy) and all(
+            codec.index_by_symbol[symbol] in allowed
+            for symbol, allowed in zip(greedy, tokens, strict=True)
+        )
+    ]
+    if compatible and np.all((values == values.max(axis=1, keepdims=True)).sum(axis=1) == 1):
+        rule = enabled_rules[min(compatible, key=lambda index: enabled_rules[index].id)]
+        return DecodedPlate(
+            greedy, _format_display(greedy, rule.separator, rule.separator_after),
+            rule.id, rule.plate_type,
+            float(sum(log_probabilities_all[t, index] for t, index in enumerate(best))),
+        )
+
     states: dict[tuple[int, int, int], tuple[float, str]] = {
         (rule_index, 0, codec.blank_index): (0.0, "")
         for rule_index in range(len(enabled_rules))
     }
     for time_step in range(values.shape[0]):
-        log_probabilities = _log_softmax(values[time_step])
+        log_probabilities = log_probabilities_all[time_step]
         next_states: dict[tuple[int, int, int], tuple[float, str]] = {}
+        groups: dict[tuple[int, int], list[tuple[int, float, str]]] = {}
         for (rule_index, position, previous_index), (score, canonical) in states.items():
+            groups.setdefault((rule_index, position), []).append((previous_index, score, canonical))
+        for (rule_index, position), entries in groups.items():
+            # Emitting a new symbol excludes only the identical previous raw
+            # index. Thus the best two predecessors suffice, replacing the
+            # previous O(classes**2) transitions without pruning any paths.
+            entries.sort(key=lambda item: (-item[1], item[2]))
+            _, score, canonical = entries[0]
             _replace_if_better(
                 next_states,
                 (rule_index, position, codec.blank_index),
                 (score + float(log_probabilities[codec.blank_index]), canonical),
             )
-            for class_index in range(1, codec.class_count):
-                score_with_index = score + float(log_probabilities[class_index])
-                if class_index == previous_index:
+            for previous_index, previous_score, previous_text in entries:
+                if previous_index != codec.blank_index:
                     _replace_if_better(
                         next_states,
-                        (rule_index, position, class_index),
-                        (score_with_index, canonical),
+                        (rule_index, position, previous_index),
+                        (previous_score + float(log_probabilities[previous_index]), previous_text),
                     )
+            if position >= len(allowed_indices[rule_index]):
+                continue
+            for class_index in allowed_indices[rule_index][position]:
+                predecessor = 1 if entries[0][0] == class_index else 0
+                if predecessor == len(entries):
                     continue
-                if (
-                    position < len(allowed_indices[rule_index])
-                    and class_index in allowed_indices[rule_index][position]
-                ):
-                    _replace_if_better(
-                        next_states,
-                        (rule_index, position + 1, class_index),
-                        (score_with_index, canonical + codec.symbols[class_index - 1]),
-                    )
+                _, score, canonical = entries[predecessor]
+                _replace_if_better(
+                    next_states,
+                    (rule_index, position + 1, class_index),
+                    (score + float(log_probabilities[class_index]), canonical + codec.symbols[class_index - 1]),
+                )
         states = next_states
 
     accepted: list[tuple[float, str, int]] = []
@@ -334,11 +371,15 @@ class PlateReader:
         recognizer_started = perf_counter()
         plates: list[PlateRead] = []
         batch_sizes: list[int] = []
+        onnx_ms = decoding_ms = preprocess_ms = 0.0
         for start in range(0, len(accepted), self._recognizer_max_batch):
             chunk = accepted[start : start + self._recognizer_max_batch]
+            preprocessing_started = perf_counter()
             batch = np.stack(
                 [preprocess_v1_rgb(crop) for _, crop in chunk], axis=0
             )
+            preprocess_ms += (perf_counter() - preprocessing_started) * 1000.0
+            inference_started = perf_counter()
             logits = _single_output(
                 self._recognizer_session,
                 "logits",
@@ -346,20 +387,28 @@ class PlateReader:
                 batch,
                 (len(chunk), 80, self.codec.class_count),
             )
-            for (detection, _), one_plate_logits in zip(chunk, logits, strict=True):
+            onnx_ms += (perf_counter() - inference_started) * 1000.0
+            for (detection, crop), one_plate_logits in zip(chunk, logits, strict=True):
+                decoding_started = perf_counter()
                 try:
+                    raw_greedy = self.codec.decode_greedy(one_plate_logits.argmax(axis=1).tolist())
+                    decoded = decode_constrained_ctc_v1(one_plate_logits, self.codec, self.ruleset)
                     plates.append(
                         PlateRead(
                             detection=detection,
-                            decoded=decode_constrained_ctc_v1(
-                                one_plate_logits, self.codec, self.ruleset
-                            ),
+                            decoded=decoded,
+                            raw_greedy_text=raw_greedy,
+                            crop_rgb=crop,
+                            ctc_decoding_ms=(perf_counter() - decoding_started) * 1000.0,
+                            recognition_batch_index=len(batch_sizes),
                         )
                     )
                 except ReaderError as error:
                     rejections.append(
                         ReaderRejection(detection, "recognizer", str(error))
                     )
+                finally:
+                    decoding_ms += (perf_counter() - decoding_started) * 1000.0
             batch_sizes.append(len(chunk))
         recognizer_ms = (perf_counter() - recognizer_started) * 1000.0
 
@@ -374,5 +423,8 @@ class PlateReader:
                 retained_detection_count=len(detections),
                 rectified_plate_count=len(accepted),
                 recognition_batch_sizes=tuple(batch_sizes),
+                onnx_inference_ms=onnx_ms,
+                ctc_decoding_ms=decoding_ms,
+                preprocess_ms=preprocess_ms,
             ),
         )

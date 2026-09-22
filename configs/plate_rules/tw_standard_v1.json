@@ -67,7 +67,7 @@
       ],
       "separator": "-",
       "separator_after": [3],
-      "plate_type": "standard",
+      "plate_type": "ordinary-heavy-motorcycle",
       "weight": 1.0,
       "enabled": true
     },
@@ -83,7 +83,7 @@
       ],
       "separator": "-",
       "separator_after": [3],
-      "plate_type": "standard",
+      "plate_type": "light-motorcycle-50cc-green",
       "weight": 1.0,
       "enabled": true
     },
@@ -99,7 +99,7 @@
       ],
       "separator": "-",
       "separator_after": [3],
-      "plate_type": "standard",
+      "plate_type": "ordinary-heavy-motorcycle",
       "weight": 1.0,
       "enabled": true
     },
@@ -115,7 +115,7 @@
       ],
       "separator": "-",
       "separator_after": [3],
-      "plate_type": "standard",
+      "plate_type": "ordinary-heavy-motorcycle",
       "weight": 1.0,
       "enabled": true
     },
@@ -130,7 +130,7 @@
       ],
       "separator": "-",
       "separator_after": [2],
-      "plate_type": "standard",
+      "plate_type": "ordinary-heavy-motorcycle",
       "weight": 1.0,
       "enabled": true
     },
@@ -145,7 +145,7 @@
       ],
       "separator": "-",
       "separator_after": [3],
-      "plate_type": "standard",
+      "plate_type": "ordinary-heavy-motorcycle",
       "weight": 1.0,
       "enabled": true
     },

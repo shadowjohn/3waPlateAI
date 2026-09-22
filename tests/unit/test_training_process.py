@@ -24,6 +24,7 @@ def _start_lock_holder(path: Path, mode: str) -> subprocess.Popen[str]:
         [sys.executable, "-u", str(helper), mode, "--lock", str(path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE,
         text=True,
         env=_child_environment(),
     )
@@ -43,6 +44,9 @@ def test_two_processes_cannot_hold_same_lock_and_release_after_exit(
         with pytest.raises(TrainingBusy):
             with training_lock(lock_path):
                 raise AssertionError("should not acquire another process lock")
+        assert child.stdin is not None
+        child.stdin.write('release\n')
+        child.stdin.flush()
         assert child.wait(timeout=10) == (0 if mode == "lock" else 9)
     finally:
         if child.poll() is None:

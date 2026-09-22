@@ -130,6 +130,11 @@ def test_reader_runs_validated_bundle_with_persistent_sessions(tmp_path, monkeyp
     assert [path.name for path in created] == ["detector.onnx", "recognizer.onnx"]
     assert len(first.plates) == len(second.plates) == 1
     assert first.plates[0].decoded.canonical == "AAA8888"
+    assert first.plates[0].raw_greedy_text == "AAA8888"
+    assert first.plates[0].crop_rgb.shape == (160, 380, 3)
+    assert first.timing.onnx_inference_ms >= 0
+    assert first.timing.ctc_decoding_ms > 0
+    assert first.timing.recognizer_ms >= first.timing.ctc_decoding_ms
     assert first.plates[0].detection.corners_xy.tolist() == [
         [10.0, 20.0], [190.0, 20.0], [190.0, 80.0], [10.0, 80.0]
     ]

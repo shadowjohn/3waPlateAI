@@ -966,11 +966,15 @@ $(function () {
         $("#diag-bundle").text(`Bundle: ${diag.bundle_name || "active-v1"}`);
         $("#diag-model-id").text(`Model: ${diag.model_id || "-"}`);
 
-        if (diag.pipeline_mode === "neural_full_pipeline") {
+        if (diag.pipeline_mode === "unavailable" || res.status === "inference_error") {
+            $("#diag-pipeline-mode").removeClass("bg-success bg-warning text-dark").addClass("bg-danger text-white").text("管線不可用：請查看錯誤原因");
+            $("#diag-locator").text(diag.locator_type || "定位器未載入");
+        } else if (diag.pipeline_mode === "neural_full_pipeline") {
+            $("#diag-pipeline-mode").removeClass("bg-danger");
             $("#diag-pipeline-mode").removeClass("bg-warning text-dark").addClass("bg-success text-white").text("管線: 神經網路端到端 (PlateReader)");
             $("#diag-locator").removeClass("bg-warning text-dark").addClass("bg-primary text-white").text(`定位: ${diag.locator_type}`);
         } else {
-            $("#diag-pipeline-mode").removeClass("bg-success text-white").addClass("bg-warning text-dark").text("管線: 混合啟發式 (OpenCV輪廓+ONNX)");
+            $("#diag-pipeline-mode").removeClass("bg-success bg-danger text-white").addClass("bg-warning text-dark").text("管線: 混合啟發式 (OpenCV輪廓+ONNX)");
             $("#diag-locator").removeClass("bg-primary text-white").addClass("bg-secondary text-white").text("定位: OpenCV 輪廓啟發式 (無神經網絡 Detector)");
         }
 
@@ -981,13 +985,48 @@ $(function () {
         $("#time-total").text(res.latency_ms || tb.total_ms || 0);
         $("#infer-diagnostic-bar").fadeIn();
 
+        let $warnings = $("#infer-model-warnings");
+        if (!$warnings.length) {
+            $warnings = $("<div>").attr("id", "infer-model-warnings").addClass("alert alert-warning small mt-2")
+                .insertAfter("#infer-diagnostic-bar");
+        }
+        const warnings = (diag.warnings || []).slice();
+        if (diag.error) warnings.unshift(`推論錯誤：${diag.error}`);
+        $warnings.text(warnings.join("\n")).css("white-space", "pre-line").toggle(warnings.length > 0);
+
+        // Rejected candidates remain inspectable, but are never drawn as plates.
+        let $rejected = $("#infer-rejected-candidates");
+        if (!$rejected.length) {
+            $rejected = $("<details>").attr("id", "infer-rejected-candidates").addClass("mt-3 small")
+                .insertAfter($("#table-infer-list").closest(".table-responsive"));
+        }
+        $rejected.empty();
+        const rejected = res.rejections || [];
+        const reasons = {
+            low_recognition_score: "OCR 分數不足", decoder_disagreement: "Greedy 與規則解碼不一致",
+            missing_greedy_evidence: "缺少原始解碼證據", ambiguous: "四角方向不明確",
+            low_area: "四角面積過小", duplicate: "四角重複", non_convex: "四角非凸形"
+        };
+        $rejected.append($("<summary>").text(`已拒絕 ${rejected.length} 個候選（展開診斷，不視為車牌）`));
+        rejected.forEach(function (item) {
+            const $entry = $("<div>").addClass("d-flex gap-2 align-items-center border-bottom py-2");
+            if (item.crop_base64) $entry.append($("<img>").attr("src", item.crop_base64).css({ width: "95px", height: "40px", objectFit: "contain" }));
+            const score = Number.isFinite(item.recognition_score) ? `；OCR 分數 ${(item.recognition_score * 100).toFixed(1)}%` : "";
+            const raw = item.raw_greedy_text == null ? "無" : (item.raw_greedy_text || "空白");
+            $entry.append($("<span>").text(`${reasons[item.reason] || item.reason || "候選不合格"}${score}；Greedy：${raw}；規則候選：${item.plate_text || "無"}`));
+            $rejected.append($entry);
+        });
+        $rejected.toggle(rejected.length > 0);
+
         const $list = $("#table-infer-list tbody");
         $list.empty();
-        $("#badge-det-count").text(`${(res.detections || []).length} 物件`);
+        $("#badge-det-count").text(`${(res.detections || []).length} 通過／${rejected.length} 拒絕`);
 
         if (!res.detections || res.detections.length === 0) {
-            $list.append("<tr><td colspan='6' class='text-center text-muted py-4'>未偵測到車牌（若為全景照片，傳統輪廓啟發式可能受複雜背景/陰影干擾）</td></tr>");
-            setMascotLine("唔...這張照片沒有找到車牌，可能是背景光影反光或角度較大，傳統輪廓沒有抓住車牌區域！");
+            const message = diag.error ? "模型或推論失敗，請查看診斷資訊。" :
+                (rejected.length ? "沒有通過辨識條件的車牌；候選與拒絕原因可在下方展開。" : "目前定位器未找到車牌。");
+            $list.append($("<tr>").append($("<td>").attr("colspan", 6).addClass("text-center text-muted py-4").text(message)));
+            setMascotLine(message);
             return;
         }
 
@@ -1032,7 +1071,8 @@ $(function () {
 
             // Stage timing tags
             const timings = det.timings || {};
-            const timingText = `<div class="small text-muted font-monospace" style="font-size: 11px;">推論: ${timings.onnx_ms || 0}ms<br>解碼: ${timings.ctc_ms || 0}ms</div>`;
+            const inferenceText = timings.onnx_scope === "shared_batch" ? "共用批次（見上方）" : `${Number(timings.onnx_ms || 0).toFixed(1)}ms`;
+            const timingText = `<div class="small text-muted font-monospace" style="font-size: 11px;">推論: ${inferenceText}<br>解碼: ${Number(timings.ctc_ms || 0).toFixed(1)}ms</div>`;
 
             // Add row to table
             const row = `<tr>
@@ -1042,9 +1082,9 @@ $(function () {
                     <span class="badge-plate">${det.plate_text}</span>
                     <div class="text-muted" style="font-size: 11px;">${det.plate_type || "一般號牌"}</div>
                 </td>
-                <td><code class="text-dark bg-light px-1 border rounded">${det.raw_greedy_text || det.canonical || "-"}</code></td>
+                <td><code class="text-dark bg-light px-1 border rounded">${det.raw_greedy_text == null ? "無" : (det.raw_greedy_text || "空白")}</code></td>
                 <td>
-                    <span class="badge bg-success">${det.confidence}%</span>
+                    <span class="badge bg-secondary" title="未經實拍校準的 OCR 分數，不是正確率">${det.confidence}%</span>
                     <div class="text-muted" style="font-size: 10px;">${det.rule_id || ""}</div>
                 </td>
                 <td>${timingText}</td>
@@ -1052,7 +1092,7 @@ $(function () {
             $list.append(row);
         });
 
-        setMascotLine(`辨識成功！發現車牌【${res.detections[0].plate_text}】，總耗時 ${res.latency_ms}ms（含解碼）！🎯`);
+        setMascotLine(`辨識結果【${res.detections[0].plate_text}】，${rejected.length} 個候選被拒絕；總耗時 ${res.latency_ms}ms。`);
     }
 
     $(document).on("click", ".crop-inspect-btn", function () {
@@ -1067,7 +1107,7 @@ $(function () {
             <div><strong>車牌預測：</strong> <span class="badge-plate">${plate}</span></div>
             <div><strong>Greedy 原文：</strong> <code>${raw || "無"}</code></div>
             <div><strong>約束規則：</strong> <code>${rule || "無"}</code></div>
-            <div><strong>信心度：</strong> ${conf}</div>
+            <div><strong>OCR 分數：</strong> ${conf}（未校準，非正確率）</div>
             <div class="mt-2 text-muted" style="font-size: 11px;">說明：上方圖像是推論引擎實際送入 ONNX Recognizer 前進行擺正或裁切之真實影像。</div>
         `);
         const modal = new bootstrap.Modal(document.getElementById("modal-crop-inspect"));

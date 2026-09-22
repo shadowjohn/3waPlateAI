@@ -149,7 +149,8 @@ def test_predict_plate_reader_contract_alignment(monkeypatch: pytest.MonkeyPatch
         plate_type="standard",
         log_probability=-0.05,
     )
-    fake_read = PlateRead(detection=fake_detection, decoded=fake_decoded)
+    fake_read = PlateRead(detection=fake_detection, decoded=fake_decoded,
+                         raw_greedy_text="ABC5678", crop_rgb=np.full((160, 380, 3), 255, np.uint8))
     fake_timing = ReaderTiming(
         detector_ms=12.5,
         rectifier_ms=1.2,

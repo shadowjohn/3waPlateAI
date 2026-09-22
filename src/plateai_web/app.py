@@ -127,7 +127,8 @@ def get_system_status() -> dict[str, Any]:
     synth_path = ROOT / "out"
     
     ezcon_ready = ezcon_path.exists() and (ezcon_path / "summary.json").exists()
-    tlpd_ready = tlpd_path.exists()
+    from .downloader import tlpd_is_ready
+    tlpd_ready = tlpd_is_ready(tlpd_path)
     synth_samples = len(list(synth_path.glob("*/*.png"))) if synth_path.exists() else 0
 
     # Check model

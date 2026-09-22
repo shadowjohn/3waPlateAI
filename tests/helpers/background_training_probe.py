@@ -12,9 +12,12 @@ def _hold_lock(path: Path, *, crash: bool) -> int:
 
     with training_lock(path):
         print("LOCKED", flush=True)
+        # Wait until the parent has actually tested exclusion before exiting.
+        # Immediate crash/sleep-based exit races the parent's lock attempt.
+        if sys.stdin.readline().strip() != 'release':
+            return 2
         if crash:
             os._exit(9)
-        time.sleep(0.2)
     return 0
 
 

@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "id": "tw-unified-v1",
+  "default_plate_type": "standard",
+  "templates": {
+    "standard": {
+      "width": 380,
+      "height": 160,
+      "background_rgb": [245, 245, 242],
+      "foreground_rgb": [18, 18, 18],
+      "border_rgb": [18, 18, 18],
+      "border_width": 3,
+      "corner_radius": 10,
+      "text_box": [24, 24, 356, 136]
+    },
+    "ordinary-heavy-motorcycle": {
+      "width": 380,
+      "height": 160,
+      "background_rgb": [245, 245, 242],
+      "foreground_rgb": [18, 18, 18],
+      "border_rgb": [18, 18, 18],
+      "border_width": 4,
+      "corner_radius": 12,
+      "text_box": [24, 24, 356, 136]
+    },
+    "light-motorcycle-50cc-green": {
+      "width": 380,
+      "height": 160,
+      "background_rgb": [22, 122, 72],
+      "foreground_rgb": [250, 250, 248],
+      "border_rgb": [250, 250, 248],
+      "border_width": 4,
+      "corner_radius": 12,
+      "text_box": [24, 24, 356, 136]
+    },
+    "large-heavy-motorcycle-yellow": {
+      "width": 380,
+      "height": 160,
+      "background_rgb": [250, 218, 36],
+      "foreground_rgb": [18, 18, 18],
+      "border_rgb": [18, 18, 18],
+      "border_width": 4,
+      "corner_radius": 12,
+      "text_box": [24, 24, 356, 136]
+    },
+    "large-heavy-motorcycle-red-over-550cc": {
+      "width": 380,
+      "height": 160,
+      "background_rgb": [180, 32, 40],
+      "foreground_rgb": [250, 250, 248],
+      "border_rgb": [250, 250, 248],
+      "border_width": 4,
+      "corner_radius": 12,
+      "text_box": [24, 24, 356, 136]
+    }
+  }
+}
