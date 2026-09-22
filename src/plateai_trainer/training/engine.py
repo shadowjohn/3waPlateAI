@@ -66,6 +66,7 @@ class EvaluationReport:
     exact_plate_accuracy: float
     character_accuracy: float
     rejected: int
+    loss: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,11 +155,14 @@ def evaluate_recognizer(
 
     model.eval()
     samples = exact = matching_characters = character_total = rejected = 0
+    val_losses = []
     with torch.no_grad():
         for batch in loader:
             if any(required > _TIME_STEPS for required in batch.required_timesteps):
                 rejected += len(batch.required_timesteps)
                 continue
+            batch_loss = _ctc_loss(model, batch, device)
+            val_losses.append(float(batch_loss.detach().cpu()))
             logits = model(batch.images.to(device=device, dtype=torch.float32))
             predictions = logits.argmax(dim=2).detach().cpu().tolist()
             targets = _targets_for_batch(batch.targets, batch.target_lengths)
@@ -172,11 +176,13 @@ def evaluate_recognizer(
                     for actual_char, expected_char in zip(actual, expected)
                 )
                 character_total += len(expected)
+    mean_val_loss = sum(val_losses) / len(val_losses) if val_losses else 0.0
     return EvaluationReport(
         samples=samples,
         exact_plate_accuracy=exact / samples if samples else 0.0,
         character_accuracy=matching_characters / character_total if character_total else 0.0,
         rejected=rejected,
+        loss=mean_val_loss,
     )
 
 
@@ -294,15 +300,22 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
     try:
         best_accuracy = -1.0
         train_loss = 0.0
-        validation = EvaluationReport(0, 0.0, 0.0, 0)
+        history: list[dict[str, Any]] = []
         for epoch in range(1, config.epochs + 1):
             losses = [train_one_batch(model, batch, optimizer).loss for batch in train_loader]
             train_loss = sum(losses) / len(losses)
             validation = evaluate_recognizer(model, validation_loader, codec, device)
             print(
                 f"Epoch {epoch}/{config.epochs} - train_loss: {train_loss:.4f} "
-                f"- val_acc: {validation.exact_plate_accuracy:.4f}"
+                f"- val_loss: {validation.loss:.4f} - val_acc: {validation.exact_plate_accuracy:.4f}"
             )
+            history.append({
+                "epoch": epoch,
+                "train_loss": round(train_loss, 4),
+                "val_loss": round(validation.loss, 4),
+                "val_acc": round(validation.exact_plate_accuracy, 4),
+                "char_acc": round(validation.character_accuracy, 4),
+            })
             if validation.exact_plate_accuracy > best_accuracy:
                 best_accuracy = validation.exact_plate_accuracy
                 _atomic_save_checkpoint(
@@ -318,6 +331,7 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
 
         report: dict[str, Any] = {
             "train": {"loss": train_loss},
+            "history": history,
             "validation": {
                 "samples": validation.samples,
                 "exact_plate_accuracy": validation.exact_plate_accuracy,

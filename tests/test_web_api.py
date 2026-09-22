@@ -37,6 +37,41 @@ def test_system_status():
     assert "model" in data
 
 
+def test_train_datasets():
+    resp = client.get("/api/train/datasets")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "datasets" in data
+    assert isinstance(data["datasets"], list)
+    # Check if demo-10000 is present
+    names = [d["name"] for d in data["datasets"]]
+    assert any("demo-10000" in n for n in names)
+
+
+def test_gpu_memory_api():
+    resp = client.get("/api/system/gpu_memory")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "used_gb" in data or "used_mb" in data
+    assert "percent" in data
+    assert "device_name" in data
+
+
+def test_train_active_and_stop():
+    # Active train status
+    resp = client.get("/api/train/active")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "active" in data
+
+    # Stop even when stopped
+    stop_resp = client.post("/api/train/stop")
+    assert stop_resp.status_code == 200
+    stop_data = stop_resp.json()
+    assert stop_data["status"] == "ok"
+
+
+
 def test_env_build_task():
     resp = client.post("/api/env/build")
     assert resp.status_code == 200

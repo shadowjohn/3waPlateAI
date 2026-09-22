@@ -28,9 +28,9 @@ def generate_dataset_task(
     tm.append_log(task_id, f"輸出路徑: {out_dir}")
 
     if out_dir.exists():
-        new_name = f"{output_dir_name}-{uuid.uuid4().hex[:6]}"
-        out_dir = root / "out" / new_name
-        tm.append_log(task_id, f"[提示] 原輸出目錄已存在，自動使用新序號路徑: {out_dir}")
+        import shutil
+        tm.append_log(task_id, f"[更新] 清理舊有的 {out_dir.name} 目錄，重新生成標準訓練集...")
+        shutil.rmtree(out_dir)
 
     # Determine font path
     font_path: Path | None = None

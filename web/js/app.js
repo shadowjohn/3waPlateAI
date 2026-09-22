@@ -5,6 +5,7 @@ $(function () {
     // State
     let activeTaskId = null;
     let pollInterval = null;
+    let currentPollingTaskId = null;
     let lastLogCount = 0;
 
     // 3wa Mascot Dialogue Script
@@ -38,7 +39,22 @@ $(function () {
 
         if (tab === "benchmark") {
             setTimeout(initBenchmarkChart, 200);
+        } else if (tab === "train") {
+            loadTrainDatasets();
+            checkActiveTraining();
+            setTimeout(function () {
+                if (trainChart) trainChart.resize();
+                else initTrainChart();
+                if (gramChart) gramChart.resize();
+                else initGramChart();
+            }, 200);
         }
+    });
+
+    $(window).on("resize", function () {
+        if (trainChart) trainChart.resize();
+        if (gramChart) gramChart.resize();
+        if (benchmarkChart) benchmarkChart.resize();
     });
 
     // Toggle Terminal Detail
@@ -58,6 +74,10 @@ $(function () {
         });
     }
     refreshStatus();
+    loadTrainDatasets();
+    checkActiveTraining();
+    setInterval(pollGpuMemory, 3000);
+    pollGpuMemory();
 
     // Global Toast Notification Helper
     function showToast(title, message, isSuccess = true) {
@@ -127,6 +147,13 @@ $(function () {
                 if ($btn) {
                     $btn.prop("disabled", false).removeClass("disabled");
                 }
+                if (err.status === 409) {
+                    const data = err.responseJSON || {};
+                    showToast("已有訓練任務進行中", data.message || "已有模型正在訓練中，不可同時重複啟動！", false);
+                    setMascotLine("老司機報告：目前已經有訓練任務正在狂飆中囉！已為您自動同步進度～🏎️💨");
+                    checkActiveTraining();
+                    return;
+                }
                 $body.append("<div class='text-danger'>啟動失敗: " + err.responseText + "</div>");
                 if (statusBoxId) {
                     $(statusBoxId).show().html(`
@@ -141,6 +168,7 @@ $(function () {
 
     function pollTask(taskId, terminalId, progressId, statusBoxId, buttonId, onComplete) {
         if (pollInterval) clearInterval(pollInterval);
+        currentPollingTaskId = taskId;
         const $body = $(terminalId).find(".terminal-body");
         const $prog = $(progressId);
         const $btn = buttonId ? $(buttonId) : null;
@@ -161,10 +189,16 @@ $(function () {
                     $body.scrollTop($body[0].scrollHeight);
                 }
 
+                // Real-time YOLO-style training metrics and curve update
+                if (task.result && task.result.history && task.result.history.length > 0) {
+                    updateTrainChartAndStats(task.result.history, task.result.current_metrics);
+                }
+
                 // Check Completion
                 if (task.status === "completed") {
                     clearInterval(pollInterval);
                     pollInterval = null;
+                    currentPollingTaskId = null;
                     
                     // Progress Bar OK
                     $prog.removeClass("progress-bar-animated bg-primary bg-info bg-warning").addClass("bg-success").css("width", "100%").text("100% OK");
@@ -173,7 +207,7 @@ $(function () {
 
                     // Update Button State
                     if ($btn) {
-                        $btn.prop("disabled", false).removeClass("disabled btn-primary btn-secondary btn-warning btn-danger").addClass("btn-success");
+                        $btn.prop("disabled", false).removeClass("disabled btn-secondary btn-warning btn-danger").addClass("btn-success");
                         const origText = $btn.text().replace(/^🚀 |^📥 |^🖨️ |^🏎️ |^✅ /, "");
                         $btn.html(`✅ ${origText} (OK)`);
                     }
@@ -198,9 +232,35 @@ $(function () {
                     
                     refreshStatus();
                     if (onComplete) onComplete(task.result);
+                } else if (task.status === "cancelled") {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    currentPollingTaskId = null;
+                    $prog.removeClass("progress-bar-animated bg-primary bg-info bg-danger").addClass("bg-warning text-dark").text("已手動中斷 (Cancelled)");
+                    if ($btn) {
+                        $btn.prop("disabled", false).removeClass("disabled btn-secondary btn-success").addClass("btn-danger").html("🏎️ 重新開始訓練");
+                    }
+                    $("#btn-stop-train").prop("disabled", false);
+
+                    if (statusBoxId) {
+                        $(statusBoxId).show().html(`
+                            <div class="alert alert-warning d-flex align-items-center gap-3 py-3 px-4 shadow-sm mb-3 border-warning">
+                                <span class="fs-2">🛑</span>
+                                <div>
+                                    <h5 class="alert-heading mb-1 fw-bold text-warning-emphasis">【${task.name}】已手動中斷</h5>
+                                    <div class="small text-secondary">訓練引擎已安全停止，狀態已歸位。您可以隨時點擊「重新開始訓練」。</div>
+                                </div>
+                            </div>
+                        `);
+                    }
+
+                    $("#train-chart-status").removeClass("bg-success-subtle text-success bg-warning-subtle text-warning").addClass("bg-secondary-subtle text-secondary").text("已手動中斷 (可隨時再啟動)");
+                    showToast("訓練中斷", `【${task.name}】已安全中斷`, false);
+                    setMascotLine("老司機已緊急煞車！訓練已中斷，隨時可以再啟動～🛑");
                 } else if (task.status === "failed") {
                     clearInterval(pollInterval);
                     pollInterval = null;
+                    currentPollingTaskId = null;
                     $prog.removeClass("progress-bar-animated").addClass("bg-danger");
                     if ($btn) {
                         $btn.prop("disabled", false).removeClass("disabled");
@@ -249,11 +309,390 @@ $(function () {
         runTask("/api/dataset/generate", { count: count, font: font }, "#term-gen", "#prog-gen", "#status-box-gen", "#btn-generate-plates");
     });
 
+    // Training Dataset Selector
+    function loadTrainDatasets() {
+        $.getJSON("/api/train/datasets", function (res) {
+            const $sel = $("#train-dataset-select");
+            $sel.empty();
+            if (!res.datasets || res.datasets.length === 0) {
+                $sel.append('<option value="">自動產生預設訓練集 (2,000 張)</option>');
+                return;
+            }
+            let hasSelected = false;
+            res.datasets.forEach(function (d) {
+                const isDemo10k = d.name.indexOf("demo-10000") !== -1;
+                const recText = isDemo10k ? " (10,000 張大樣本 - 推薦)" : ` (${d.count.toLocaleString()} 張)`;
+                const opt = $(`<option value="${d.path}">${d.name}${recText}</option>`);
+                if (isDemo10k && !hasSelected) {
+                    opt.prop("selected", true);
+                    hasSelected = true;
+                }
+                $sel.append(opt);
+            });
+        });
+    }
+
+    // YOLO Style Training Metrics Chart
+    let trainChart = null;
+    function initTrainChart() {
+        const dom = document.getElementById("chart-train-metrics");
+        if (!dom) return;
+        if (!trainChart) {
+            trainChart = echarts.init(dom);
+        }
+        const option = {
+            title: {
+                text: "YOLO 指標收斂曲線 (Loss vs. Accuracy)",
+                subtext: "即時追蹤 PyTorch CTC 訓練損失與驗證精準度",
+                left: "center",
+                textStyle: { fontSize: 13, fontWeight: "bold", color: "#1e293b" },
+                subtextStyle: { fontSize: 11, color: "#64748b" }
+            },
+            tooltip: {
+                trigger: "axis",
+                axisPointer: { type: "cross" }
+            },
+            legend: {
+                data: ["訓練損失 (Train Loss)", "驗證損失 (Val Loss)", "驗證準確率 (Val Acc %)"],
+                bottom: 2,
+                textStyle: { fontSize: 12 }
+            },
+            grid: {
+                top: 55,
+                left: "4%",
+                right: "5%",
+                bottom: 40,
+                containLabel: true
+            },
+            xAxis: {
+                type: "category",
+                boundaryGap: false,
+                name: "Epoch",
+                data: []
+            },
+            yAxis: [
+                {
+                    type: "value",
+                    name: "Loss",
+                    position: "left",
+                    min: 0,
+                    splitLine: { lineStyle: { type: "dashed", color: "#e2e8f0" } }
+                },
+                {
+                    type: "value",
+                    name: "Accuracy (%)",
+                    position: "right",
+                    min: 0,
+                    max: 100,
+                    splitLine: { show: false },
+                    axisLabel: { formatter: "{value}%" }
+                }
+            ],
+            series: [
+                {
+                    name: "訓練損失 (Train Loss)",
+                    type: "line",
+                    smooth: true,
+                    yAxisIndex: 0,
+                    itemStyle: { color: "#ef4444" },
+                    lineStyle: { width: 3 },
+                    symbol: "circle",
+                    symbolSize: 6,
+                    data: []
+                },
+                {
+                    name: "驗證損失 (Val Loss)",
+                    type: "line",
+                    smooth: true,
+                    yAxisIndex: 0,
+                    itemStyle: { color: "#8b5cf6" },
+                    lineStyle: { width: 3, type: "dashed" },
+                    symbol: "diamond",
+                    symbolSize: 6,
+                    data: []
+                },
+                {
+                    name: "驗證準確率 (Val Acc %)",
+                    type: "line",
+                    smooth: true,
+                    yAxisIndex: 1,
+                    itemStyle: { color: "#06b6d4" },
+                    lineStyle: { width: 3 },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: "rgba(6,182,212,0.25)" },
+                            { offset: 1, color: "rgba(6,182,212,0.01)" }
+                        ])
+                    },
+                    symbol: "rect",
+                    symbolSize: 6,
+                    data: []
+                }
+            ]
+        };
+        trainChart.setOption(option);
+    }
+
+    function updateTrainChartAndStats(history, currentMetrics) {
+        if (!trainChart) {
+            initTrainChart();
+        }
+        if (!history || history.length === 0) return;
+
+        const epochs = history.map(h => `Epoch ${h.epoch}`);
+        const trainLosses = history.map(h => h.train_loss);
+        const valLosses = history.map(h => h.val_loss);
+        const valAccs = history.map(h => h.val_acc);
+
+        trainChart.setOption({
+            xAxis: { data: epochs },
+            series: [
+                { name: "訓練損失 (Train Loss)", data: trainLosses },
+                { name: "驗證損失 (Val Loss)", data: valLosses },
+                { name: "驗證準確率 (Val Acc %)", data: valAccs }
+            ]
+        });
+
+        // Update Stat Cards
+        const last = currentMetrics || history[history.length - 1];
+        if (last) {
+            const tot = last.total_epochs || $("#train-epochs").val() || 5;
+            $("#train-stat-epoch").text(`${last.epoch} / ${tot}`);
+            $("#train-stat-loss").text(last.train_loss !== undefined ? Number(last.train_loss).toFixed(4) : "--");
+            $("#train-stat-vloss").text(last.val_loss !== undefined ? Number(last.val_loss).toFixed(4) : "--");
+            $("#train-stat-acc").text(last.val_acc !== undefined ? `${Number(last.val_acc).toFixed(1)}%` : "--%");
+            $("#train-chart-status")
+                .removeClass("bg-secondary-subtle text-secondary bg-warning-subtle text-warning")
+                .addClass("bg-success-subtle text-success")
+                .text(`即時收斂中 (回合 ${last.epoch}/${tot} | 準確率 ${last.val_acc}%)`);
+        }
+    }
+
+    // GPU VRAM (GRAM) Real-time Monitor
+    let gramChart = null;
+    let gramHistory = [];
+    const MAX_GRAM_POINTS = 30;
+
+    function initGramChart() {
+        const dom = document.getElementById("chart-train-gram");
+        if (!dom) return;
+        if (!gramChart) {
+            gramChart = echarts.init(dom);
+        }
+        const option = {
+            title: {
+                text: "GPU 顯存 (GRAM) 即時負載",
+                subtext: "每 3 秒自動輪詢 CUDA 記憶體",
+                left: "center",
+                textStyle: { fontSize: 13, fontWeight: "bold", color: "#1e293b" },
+                subtextStyle: { fontSize: 11, color: "#64748b" }
+            },
+            tooltip: {
+                trigger: "axis",
+                axisPointer: { type: "cross" },
+                formatter: function (params) {
+                    if (!params || !params.length) return "";
+                    const time = params[0].name;
+                    let html = `<strong>${time}</strong><br/>`;
+                    params.forEach(p => {
+                        html += `${p.marker} ${p.seriesName}: <strong>${p.value}</strong>${p.seriesIndex === 0 ? " GB" : "%"}<br/>`;
+                    });
+                    return html;
+                }
+            },
+            legend: {
+                data: ["顯存用量 (GB)", "使用率 (%)"],
+                bottom: 2,
+                textStyle: { fontSize: 12 }
+            },
+            grid: {
+                top: 55,
+                left: "4%",
+                right: "5%",
+                bottom: 40,
+                containLabel: true
+            },
+            xAxis: {
+                type: "category",
+                boundaryGap: false,
+                data: []
+            },
+            yAxis: [
+                {
+                    type: "value",
+                    name: "VRAM (GB)",
+                    position: "left",
+                    min: 0,
+                    splitLine: { lineStyle: { type: "dashed", color: "#e2e8f0" } }
+                },
+                {
+                    type: "value",
+                    name: "使用率 (%)",
+                    position: "right",
+                    min: 0,
+                    max: 100,
+                    splitLine: { show: false },
+                    axisLabel: { formatter: "{value}%" }
+                }
+            ],
+            series: [
+                {
+                    name: "顯存用量 (GB)",
+                    type: "line",
+                    smooth: true,
+                    yAxisIndex: 0,
+                    itemStyle: { color: "#6366f1" },
+                    lineStyle: { width: 3 },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: "rgba(99, 102, 241, 0.35)" },
+                            { offset: 1, color: "rgba(99, 102, 241, 0.02)" }
+                        ])
+                    },
+                    data: []
+                },
+                {
+                    name: "使用率 (%)",
+                    type: "line",
+                    smooth: true,
+                    yAxisIndex: 1,
+                    itemStyle: { color: "#f59e0b" },
+                    lineStyle: { width: 2, type: "dashed" },
+                    data: []
+                }
+            ]
+        };
+        gramChart.setOption(option);
+    }
+
+    function pollGpuMemory() {
+        $.getJSON("/api/system/gpu_memory", function (info) {
+            if (!info) return;
+
+            if (info.device_name) {
+                $("#gram-device-badge").text(info.device_name);
+            }
+            if (info.available) {
+                $("#gram-usage-text").text(`${info.used_gb} GB / ${info.total_gb} GB (${info.percent}%)`);
+            } else {
+                $("#gram-usage-text").text(`${info.used_mb} MB (${info.percent}%)`);
+            }
+
+            const nowTime = info.timestamp || new Date().toTimeString().split(" ")[0];
+            gramHistory.push({
+                time: nowTime,
+                used_gb: info.used_gb,
+                percent: info.percent,
+                total_gb: info.total_gb
+            });
+            if (gramHistory.length > MAX_GRAM_POINTS) {
+                gramHistory.shift();
+            }
+
+            if (!gramChart) {
+                initGramChart();
+            }
+            if (gramChart) {
+                gramChart.setOption({
+                    xAxis: {
+                        data: gramHistory.map(g => g.time)
+                    },
+                    yAxis: [
+                        { max: info.total_gb ? Math.ceil(info.total_gb) : undefined },
+                        { max: 100 }
+                    ],
+                    series: [
+                        { name: "顯存用量 (GB)", data: gramHistory.map(g => g.used_gb) },
+                        { name: "使用率 (%)", data: gramHistory.map(g => g.percent) }
+                    ]
+                });
+            }
+        });
+    }
+
+    // Check if there is an active training job running in another tab / process
+    function checkActiveTraining() {
+        $.getJSON("/api/train/active", function (res) {
+            if (res.active && res.task) {
+                const t = res.task;
+                $("#btn-start-train").prop("disabled", true).addClass("disabled").html("🏎️ 訓練進行中...");
+                $("#btn-stop-train").prop("disabled", false);
+                $("#train-chart-status").removeClass("bg-secondary-subtle text-secondary bg-success text-white").addClass("bg-success-subtle text-success").text("訓練進行中 (多視窗同步)");
+
+                if (t.result && t.result.history) {
+                    updateTrainChartAndStats(t.result.history, t.result.current_metrics);
+                }
+
+                if (!pollInterval || currentPollingTaskId !== t.id) {
+                    pollTask(t.id, "#term-train", "#prog-train", "#status-box-train", "#btn-start-train");
+                }
+            } else if (!res.active && res.task) {
+                if (res.task.result && res.task.result.history) {
+                    updateTrainChartAndStats(res.task.result.history, res.task.result.current_metrics);
+                }
+            }
+        });
+    }
+
     // 4. Train Model
     $("#btn-start-train").on("click", function () {
         const epochs = parseInt($("#train-epochs").val()) || 5;
-        setMascotLine(`模型訓練開始！${epochs} 個 Epoch 衝刺中，老司機緊握方向盤！🏎️`);
-        runTask("/api/train/start", { epochs: epochs }, "#term-train", "#prog-train", "#status-box-train", "#btn-start-train");
+        const trainDataset = $("#train-dataset-select").val() || null;
+
+        // Reset display
+        $("#train-stat-epoch").text(`0 / ${epochs}`);
+        $("#train-stat-loss").text("--");
+        $("#train-stat-vloss").text("--");
+        $("#train-stat-acc").text("--%");
+        $("#train-chart-status")
+            .removeClass("bg-secondary-subtle text-secondary bg-success-subtle text-success bg-success text-white")
+            .addClass("bg-warning-subtle text-warning")
+            .text("正在準備大樣本與 PyTorch 訓練引擎...");
+        initTrainChart();
+        initGramChart();
+
+        setMascotLine(`大樣本訓練出發！目標 ${epochs} 個 Epoch，老司機緊握方向盤！🏎️💨`);
+        runTask(
+            "/api/train/start",
+            { epochs: epochs, train_dataset: trainDataset },
+            "#term-train",
+            "#prog-train",
+            "#status-box-train",
+            "#btn-start-train",
+            function (result) {
+                if (result && result.history) {
+                    updateTrainChartAndStats(result.history, null);
+                }
+                $("#train-chart-status")
+                    .removeClass("bg-warning-subtle text-warning bg-success-subtle text-success")
+                    .addClass("bg-success text-white")
+                    .text("訓練與 ONNX 導出完成！");
+            }
+        );
+    });
+
+    // 4b. Stop / Interrupt Training (can be clicked anytime, even when already stopped)
+    $("#btn-stop-train").on("click", function () {
+        setMascotLine("煞車踩到底！正在請求訓練引擎安全中斷...🛑");
+        $.post("/api/train/stop", function (res) {
+            showToast("訓練中斷", "已送出中斷請求，訓練引擎已安全停止！", false);
+            setMascotLine("老司機已緊急煞車！訓練已中斷，狀態已安全歸位～🛑");
+            $("#btn-start-train").prop("disabled", false).removeClass("disabled btn-secondary btn-success").addClass("btn-danger").html("🏎️ 重新開始訓練");
+            $("#btn-stop-train").prop("disabled", false);
+            $("#train-chart-status").removeClass("bg-success-subtle text-success bg-warning-subtle text-warning").addClass("bg-secondary-subtle text-secondary").text("已手動中斷 (可隨時再啟動)");
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                currentPollingTaskId = null;
+            }
+            $("#prog-train").removeClass("progress-bar-animated bg-primary bg-danger").addClass("bg-warning text-dark").text("已手動中斷");
+            $("#term-train .terminal-body").append("<div class='text-warning fw-bold mt-2'>[INFO] 使用者手動中斷訓練作業。</div>");
+            const $body = $("#term-train .terminal-body");
+            $body.scrollTop($body[0].scrollHeight);
+        }).fail(function () {
+            showToast("中斷操作", "已執行清理狀態程序", true);
+            $("#btn-start-train").prop("disabled", false).removeClass("disabled").html("🏎️ 重新開始訓練");
+        });
     });
 
     // 5. Benchmark

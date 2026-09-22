@@ -21,7 +21,7 @@ from .generator import generate_dataset_task
 from .predictor import predictor
 from .release_packager import build_release_task
 from .tasks import TaskStatus, task_manager
-from .trainer import train_model_task
+from .trainer import find_available_datasets, train_model_task
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 WEB_DIR = ROOT / "web"
@@ -148,15 +148,97 @@ def start_generate_dataset(req: GenerateRequest):
     return {"status": "started", "task_id": task_id}
 
 
+def get_gpu_memory_info() -> dict[str, Any]:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            free_b, total_b = torch.cuda.mem_get_info(0)
+            used_b = total_b - free_b
+            device_name = torch.cuda.get_device_name(0)
+            return {
+                "available": True,
+                "type": "cuda",
+                "device_name": device_name,
+                "used_mb": round(used_b / (1024 * 1024), 1),
+                "used_gb": round(used_b / (1024**3), 2),
+                "total_mb": round(total_b / (1024 * 1024), 1),
+                "total_gb": round(total_b / (1024**3), 2),
+                "free_mb": round(free_b / (1024 * 1024), 1),
+                "percent": round((used_b / total_b) * 100, 1),
+                "timestamp": time.strftime("%H:%M:%S"),
+            }
+    except Exception:
+        pass
+    return {
+        "available": False,
+        "type": "none",
+        "device_name": "無 GPU 顯存 (CPU 運算模式)",
+        "used_mb": 0.0,
+        "used_gb": 0.0,
+        "total_mb": 0.0,
+        "total_gb": 0.0,
+        "free_mb": 0.0,
+        "percent": 0.0,
+        "timestamp": time.strftime("%H:%M:%S"),
+    }
+
+
+@app.get("/api/system/gpu_memory")
+def get_gpu_memory():
+    return get_gpu_memory_info()
+
+
+@app.get("/api/train/datasets")
+def get_train_datasets():
+    return {"datasets": find_available_datasets(ROOT)}
+
+
+@app.get("/api/train/active")
+def get_active_train():
+    active_task = task_manager.get_active_training_task()
+    if active_task:
+        return {"active": True, "task": active_task}
+    # Return most recent training task if exists
+    for t in task_manager.list_tasks():
+        if "訓練" in t.name or "train" in t.name.lower():
+            return {"active": False, "task": t}
+    return {"active": False, "task": None}
+
+
+@app.post("/api/train/stop")
+def stop_training():
+    cancelled = task_manager.cancel_task()
+    return {"status": "ok", "cancelled": cancelled, "message": "訓練已成功中斷"}
+
+
 class TrainRequest(BaseModel):
     epochs: int = 5
     run_name: str = ""
+    train_dataset: str | None = None
 
 
 @app.post("/api/train/start")
 def start_training(req: TrainRequest):
+    # Concurrency guard: Only one train job at a time
+    active_task = task_manager.get_active_training_task()
+    if active_task:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "busy",
+                "task_id": active_task.id,
+                "message": f"已有模型訓練任務正在進行中 (Task ID: {active_task.id})，不可同時進行多筆訓練！",
+            },
+        )
+
     def runner(task_id, tm):
-        train_model_task(task_id, tm, epochs=req.epochs, run_name=req.run_name)
+        train_model_task(
+            task_id,
+            tm,
+            epochs=req.epochs,
+            train_dir=req.train_dataset,
+            run_name=req.run_name,
+        )
 
     task_id = task_manager.run_in_background(f"模型訓練 ({req.epochs} Epochs)", runner)
     return {"status": "started", "task_id": task_id}

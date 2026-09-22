@@ -321,19 +321,81 @@
             <div class="panel">
                 <div class="row g-3 align-items-end mb-3">
                     <div class="col-md-3">
+                        <label class="form-label small fw-bold">訓練資料集 (建議選擇 10,000 張大樣本)</label>
+                        <select class="form-select" id="train-dataset-select">
+                            <option value="">自動挑選最大樣本 (如 demo-10000)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
                         <label class="form-label small fw-bold">訓練 Epochs</label>
                         <input type="number" class="form-control" id="train-epochs" value="5" min="1" max="100">
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label small fw-bold">解碼類別</label>
-                        <input type="text" class="form-control" value="35 類 (34 字元 + Blank)" disabled>
+                        <label class="form-label small fw-bold">架構規範</label>
+                        <input type="text" class="form-control" value="35 類 (34 字元 + Blank) CTC" disabled>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label small fw-bold">匯出格式</label>
-                        <input type="text" class="form-control" value="ONNX Model Bundle v1" disabled>
+                    <div class="col-md-2">
+                        <button class="btn btn-danger w-100 fw-bold" id="btn-start-train">🏎️ 開始模型訓練</button>
                     </div>
-                    <div class="col-md-3">
-                        <button class="btn btn-danger w-100" id="btn-start-train">🏎️ 開始模型訓練與匯出</button>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-danger w-100 fw-bold" id="btn-stop-train" title="隨時中斷當前訓練">⛔ 中斷訓練</button>
+                    </div>
+                </div>
+
+                <!-- YOLO Style Stat Cards -->
+                <div class="row g-3 mb-3">
+                    <div class="col-6 col-md-3">
+                        <div class="card p-3 border-0 bg-light text-center h-100 shadow-sm">
+                            <div class="text-muted small fw-bold">目前回合 (Epoch)</div>
+                            <div class="fs-4 fw-bold text-dark mt-1" id="train-stat-epoch">0 / 0</div>
+                            <div class="small text-secondary">訓練推進狀態</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card p-3 border-0 bg-light text-center h-100 shadow-sm">
+                            <div class="text-muted small fw-bold">訓練損失 (Train Loss)</div>
+                            <div class="fs-4 fw-bold mt-1" style="color: #ef4444;" id="train-stat-loss">--</div>
+                            <div class="small text-secondary">CTC Loss (越低越好)</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card p-3 border-0 bg-light text-center h-100 shadow-sm">
+                            <div class="text-muted small fw-bold">驗證損失 (Val Loss)</div>
+                            <div class="fs-4 fw-bold mt-1" style="color: #8b5cf6;" id="train-stat-vloss">--</div>
+                            <div class="small text-secondary">獨立驗證集 Loss</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="card p-3 border-0 bg-light text-center h-100 shadow-sm">
+                            <div class="text-muted small fw-bold">驗證準確率 (Val Accuracy)</div>
+                            <div class="fs-4 fw-bold mt-1" style="color: #06b6d4;" id="train-stat-acc">--%</div>
+                            <div class="small text-secondary">全字元精準比對率</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dual View: Left = YOLO Metrics Curve, Right = GPU VRAM (GRAM) Real-time Usage -->
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card p-3 border h-100 shadow-sm bg-white">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="fw-bold mb-0 text-dark">📈 YOLO 指標收斂曲線 (Loss & Acc)</h6>
+                                <span class="badge bg-secondary-subtle text-secondary" id="train-chart-status">尚未開始訓練</span>
+                            </div>
+                            <div id="chart-train-metrics" style="width: 100%; height: 320px;"></div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card p-3 border h-100 shadow-sm bg-white">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <h6 class="fw-bold mb-0 text-dark">🖥️ GPU 顯存 (GRAM / VRAM) 即時監控</h6>
+                                    <span class="badge bg-dark text-white font-monospace small" id="gram-device-badge">NVIDIA GPU</span>
+                                </div>
+                                <span class="badge bg-primary-subtle text-primary fw-bold" id="gram-usage-text">3秒更新中...</span>
+                            </div>
+                            <div id="chart-train-gram" style="width: 100%; height: 320px;"></div>
+                        </div>
                     </div>
                 </div>
 

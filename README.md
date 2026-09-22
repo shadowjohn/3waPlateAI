@@ -32,7 +32,7 @@ M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓�
 .\run_build.ps1
 ```
 
-`run_build.ps1`（亦可雙擊或執行 `run_build.bat`，既有 `build.bat` 維持相容轉發）會建立被忽略的 CPython 3.11 `.venv`（優先使用 `uv`，否則使用 `py -3.11`）、安裝鎖定的訓練與測試依賴、執行完整測試、建立 `dist/`、強制安裝剛建立的 wheel、驗證 `plateai-read --help`、執行三張圖的已安裝套件合成 smoke，最後執行 `pip check`。
+`run_build.ps1`（亦可雙擊或執行 `run_build.bat`）會建立被忽略的 CPython 3.11 `.venv`（優先使用 `uv`，否則使用 `py -3.11`）、安裝鎖定的訓練與測試依賴、執行完整測試、建立 `dist/`、強制安裝剛建立的 wheel、驗證 `plateai-read --help`、執行三張圖的已安裝套件合成 smoke，最後執行 `pip check`。
 
 常用選項包括 `-BootstrapOnly`（只建立或更新環境）、`-SkipTests`、`-SkipPackage`，以及 `.venv` 不符合 CPython 3.11 時的 `-RecreateVenv`。建置只產生 Python 套件產物，不會訓練、下載或發布模型。
 
