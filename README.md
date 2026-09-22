@@ -1,6 +1,11 @@
 # 3waPlateAI
 
+<p align="center">
+  <img src="assets/readme_banner.jpg" alt="3waPlateAI Banner" width="100%">
+</p>
+
 3waPlateAI 是一套用於台灣車牌風格合成、訓練契約與高速辨識流程的 MIT 授權工具組。
+帶有「3wa 老司機看板娘」領航的一站式視覺化 Web Studio 與一鍵 Release 部署引擎。
 
 本公開儲存庫刻意維持為**純原始碼**：提供程式、設定、JSON Schema、文件與四張無害的合成 CI fixture，但不發布 checkpoint、訓練權重、ONNX 模型、TensorRT engine 或 Model Bundle。資料權利、法規審查、訓練算力、模型調校與後續維護均由使用者負責。
 
@@ -24,33 +29,59 @@ M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓�
 在 PowerShell 執行：
 
 ```powershell
-.\build.ps1
+.\run_build.ps1
 ```
 
-`build.ps1` 會建立被忽略的 CPython 3.11 `.venv`（優先使用 `uv`，否則使用 `py -3.11`）、安裝鎖定的訓練與測試依賴、執行完整測試、建立 `dist/`、強制安裝剛建立的 wheel、驗證 `plateai-read --help`、執行三張圖的已安裝套件合成 smoke，最後執行 `pip check`。`build.bat` 是可由 cmd 或雙擊呼叫的包裝器。
+`run_build.ps1`（亦可雙擊或執行 `run_build.bat`，既有 `build.bat` 維持相容轉發）會建立被忽略的 CPython 3.11 `.venv`（優先使用 `uv`，否則使用 `py -3.11`）、安裝鎖定的訓練與測試依賴、執行完整測試、建立 `dist/`、強制安裝剛建立的 wheel、驗證 `plateai-read --help`、執行三張圖的已安裝套件合成 smoke，最後執行 `pip check`。
 
-常用選項包括 `-BootstrapOnly`（只建立或更新環境）、`-SkipTests`、`-SkipPackage`，以及 `.venv` 不符合 CPython 3.11 時的 `-RecreateVenv`。後者只會移除被忽略的 `.venv`，不會碰觸原始碼、資料集、模型或其他輸出路徑。建置只產生 Python 套件產物，不會訓練、下載或發布模型。
-
-### 手動建立環境
-
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements/py311.lock.txt
-python -m pip install --no-deps -e .
-plateai-generate generate --count 100 --seed 42 --output out\demo
-python -m pytest
-```
-
-生成器拒絕覆寫既有輸出目錄。輸出採交易式發布：失敗時只清除自己建立的暫存目錄，不會移除不相干檔案。
+常用選項包括 `-BootstrapOnly`（只建立或更新環境）、`-SkipTests`、`-SkipPackage`，以及 `.venv` 不符合 CPython 3.11 時的 `-RecreateVenv`。建置只產生 Python 套件產物，不會訓練、下載或發布模型。
 
 ### PyTorch 與 GPU 顯卡版本支援
 
-若要在本機使用 GPU 加速訓練（例如 `plateai-train --device cuda`）：
-- **舊架構顯卡 (如 GTX 1080 / Pascal)**：PyTorch 請選用 **`cu118`** (CUDA 11.8) 建置版本（例如 `torch==2.5.1+cu118`）。若使用較新的 CUDA 版本可能缺少 sm_61 算力支援而無法啟動。
-- **新架構顯卡 (如 RTX 5060、RTX 5090 / Blackwell)**：請選用 **`cu128`** (CUDA 12.8+) 或支援 Blackwell 新架構的最新 PyTorch 建置版本。
-- **CPU 開發環境**：官方依賴鎖定檔 (`requirements/py311.training.lock.txt`) 採用純 CPU 依賴 (`torch==2.14.0`)，適合無獨立顯卡或 CI 環境運行全流程測試與確定性合成。
+一鍵建置腳本 `run_build.bat` / `run_build.ps1` 支援 `-Cuda` 參數（預設 `auto`，自動依據本機顯卡選用適當版本）：
+- **顯卡 1080 / 舊架構 (如 GTX 1080 / Pascal)**：自動或指定 `-Cuda cu118`，安裝 **`cu118`** 建置版本（`torch==2.7.1+cu118`，因較新 CUDA 版本缺少 sm_61 算力支援）。
+- **顯卡 5060 或 5090 / 新架構 (如 RTX 5060、RTX 5090 / Blackwell)**：自動或指定 `-Cuda cu128`，安裝 **`cu128`** 建置版本（`torch==2.11.0+cu128`，支援 Blackwell 核心架構）。
+- **純 CPU / CI 環境**：指定 `-Cuda cpu`，使用官方鎖定純 CPU 版本 (`torch==2.14.0`)。
+
+範例：
+```powershell
+.\run_build.bat -Cuda cu128       # 為 RTX 5060 / 5090 一鍵安裝與建置
+.\run_build.bat -Cuda cu118       # 為 GTX 1080 一鍵安裝與建置
+.\run_build.bat -BootstrapOnly    # 自動偵測本機顯卡，僅初始化環境不跑測試
+```
+
+### 一鍵訓練與 ONNX 匯出 (`run_train.bat` / `run_train.ps1`)
+
+提供開發者最直覺的一鍵訓練指令：
+- **自動偵測 GPU**：預設優先使用 CUDA 訓練，無顯卡時自動退回 CPU。
+- **自動補齊訓練資料**：若尚未合成訓練集，自動以專用車牌字型（`taiwan_plate`）與台灣標準規則快速合成 2,000 張訓練樣本與 500 張驗證樣本。
+- **自動匯出 ONNX Bundle**：訓練完成並通過 Native/ONNX parity 驗證後，直接導出至 `models/bundles/active-v1`，供辨識程式與 Web 介面即時使用。
+
+```powershell
+.\run_train.bat                     # 一鍵自動化訓練與 ONNX 導出 (預設 10 epochs, auto-gpu)
+.\run_train.bat -Epochs 20          # 指定訓練 20 輪
+.\run_train.bat -Device cpu         # 強制使用 CPU 訓練
+```
+
+### 一鍵啟動 Web Studio (`run_server.bat`)
+
+啟動 Web Studio（Port 1688），提供合成資料產生器、在線車牌標記、模型訓練監控與即時辨識測試介面：
+```powershell
+.\run_server.bat
+```
+
+### 一鍵下載真實測試照片 (`run_get_test_data.bat` / `run_get_test_data.ps1`)
+
+自動從公開真實台灣車牌資料集（EZCon）下載實際道路車輛與車牌照片至 `test_data/`，供本機測試檢驗：
+- 影像自動命名為 `{序號}_{真實車牌號碼}.jpg`（例如 `002_MYX-6873.jpg`），一眼即可辨識 Ground Truth。
+- 自動生成 `labels.json` 記錄真實標註與旋轉框座標。
+- 極速多線程下載，30 張照片僅需 1 秒內完成。
+
+```powershell
+.\run_get_test_data.bat               # 下載預設 30 張台灣真實車牌測試照片至 test_data\
+.\run_get_test_data.bat -Count 50     # 下載 50 張
+.\run_get_test_data.bat -Count all    # 下載全數 259 張真實測試照片
+```
 
 ## M1 合成車牌資料
 
@@ -107,7 +138,10 @@ python -m pytest
 
 ## M2 本機辨識訓練
 
-選用的 `training` extra 提供符合裁切契約的本機 PyTorch CTC trainer 與 ONNX exporter。它使用 Pillow golden 灰階前處理、80 個 CTC timestep、blank index 0，支援動態類別數（預設 34 類，統一規格為 35 類），並在發布被忽略的本機 Bundle 前檢查 PyTorch 與 ONNX parity。資料集、權重、ONNX、run 與 Bundle 均不提交；詳見[訓練與資料集指南](docs/training.md)。
+選用的 `training` extra 提供符合裁切契約的本機 PyTorch CTC trainer 與 ONNX exporter。它使用 Pillow golden 灰階前處理、80 個 CTC timestep、blank index 0，支援動態類別數（預設 34 類，統一規格為 35 類），並在發布被忽略的本機 Bundle 前檢查 PyTorch 與 ONNX parity。
+
+- **自動硬體偵測（預設 `--device auto`）**：執行訓練時自動偵測 GPU，預設優先使用 CUDA 進行 GPU 加速訓練；若系統未偵測到可用顯卡或 CUDA 不可用，則自動平順退回 CPU 訓練。使用者亦可明確指定 `--device cuda` 或 `--device cpu`。
+- 資料集、權重、ONNX、run 與 Bundle 均不提交；詳見[訓練與資料集指南](docs/training.md)。
 
 ## M3a 四角點校正
 

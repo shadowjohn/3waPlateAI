@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>3waPlateAI Studio - 台灣車牌 AI 工作台</title>
+    <!-- Local Offline CSS Assets -->
+    <link rel="stylesheet" href="/css/reset.css">
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/css/app.css">
+    <link rel="icon" href="/assets/mascot_avatar.png" type="image/png">
+</head>
+<body>
+<!-- Toast Notification Container -->
+<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;">
+    <div id="app-toast" class="toast align-items-center text-white bg-success border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body d-flex align-items-center gap-2">
+                <span class="fs-4" id="toast-icon">✅</span>
+                <div>
+                    <strong id="toast-title">任務完成</strong>
+                    <div class="small" id="toast-message">操作已順利完成！</div>
+                </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    </div>
+</div>
+
+<div class="layout">
+    <!-- Left Navigation Sidebar -->
+    <aside class="sidebar">
+        <div>
+            <div class="brand-section">
+                <img src="/assets/mascot_avatar.png" alt="3wa Avatar" class="brand-avatar">
+                <div>
+                    <div class="brand-title">3waPlateAI Studio</div>
+                    <div class="brand-sub">台灣車牌辨識與發行平台</div>
+                </div>
+            </div>
+
+            <nav class="nav-list">
+                <a class="nav-item active" data-tab="dashboard">
+                    <span>📊</span> 總覽儀表板
+                </a>
+                <a class="nav-item" data-tab="env">
+                    <span>⚙️</span> 環境建置 (Setup)
+                </a>
+                <a class="nav-item" data-tab="dataset">
+                    <span>📦</span> 下載驗證資料
+                </a>
+                <a class="nav-item" data-tab="generate">
+                    <span>🖨️</span> 產生範例車牌 (10000張)
+                </a>
+                <a class="nav-item" data-tab="train">
+                    <span>🏎️</span> 模型訓練 (Train)
+                </a>
+                <a class="nav-item" data-tab="inference">
+                    <span>🎯</span> 即時驗證 (Live Inference)
+                </a>
+                <a class="nav-item" data-tab="benchmark">
+                    <span>⏱️</span> Benchmark 測試
+                </a>
+                <a class="nav-item" data-tab="release">
+                    <span>🚀</span> 一鍵發行 (Release 1788)
+                </a>
+            </nav>
+        </div>
+
+        <!-- 3wa Mascot Interactive Widget -->
+        <div class="sidebar-mascot" id="sidebar-mascot" title="點我切換老司機台詞！">
+            <div class="mascot-bubble">
+                <span id="mascot-bubble-text">上車囉！老司機準備出發～🚗💨</span>
+            </div>
+            <div class="mascot-info">
+                <img src="/assets/mascot_avatar.png" alt="3wa Mascot" class="mascot-thumb">
+                <div>
+                    <div class="mascot-name">3wa 老司機</div>
+                    <div class="mascot-role">車牌 AI 領航員 (點擊互動)</div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main">
+        <!-- 1. Dashboard Section -->
+        <section id="section-dashboard" class="page-section">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">總覽儀表板</h1>
+                    <div class="page-desc">3waPlateAI 系統狀態、資料集儲備與推論引擎就緒概覽</div>
+                </div>
+                <div>
+                    <button class="btn btn-outline-primary btn-sm" onclick="location.reload()">🔄 重新整理</button>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-md-3">
+                    <div class="panel h-100">
+                        <div class="text-muted small">運算硬體 (GPU/CPU)</div>
+                        <h4 class="mt-2 text-primary" id="stat-gpu">載入中...</h4>
+                        <div class="text-secondary small">自動偵測 CUDA 加速</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="panel h-100">
+                        <div class="text-muted small">EZCon 真實測試集</div>
+                        <h4 class="mt-2" id="stat-ezcon">檢查中...</h4>
+                        <div class="text-secondary small">259~297 張標籤影像</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="panel h-100">
+                        <div class="text-muted small">合成範例庫存</div>
+                        <h4 class="mt-2 text-success" id="stat-synth">0 張</h4>
+                        <div class="text-secondary small">全台統一 34 字元規範</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="panel h-100">
+                        <div class="text-muted small">ONNX 模型 Bundle</div>
+                        <h4 class="mt-2 text-info" id="stat-model">檢查中...</h4>
+                        <div class="text-secondary small">可立即執行高速推論</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Action Grid -->
+            <div class="panel">
+                <div class="panel-title">快速操作通道</div>
+                <div class="row g-3">
+                    <div class="col-md-6 col-lg-3">
+                        <div class="card p-3 border-0 bg-light">
+                            <h6>1. 檢查與建置環境</h6>
+                            <p class="small text-muted mb-2">確認 Python 依賴與 PyTorch/CUDA</p>
+                            <button class="btn btn-primary btn-sm" onclick="$('.nav-item[data-tab=env]').click()">前往建置</button>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3">
+                        <div class="card p-3 border-0 bg-light">
+                            <h6>2. 抓取真實車牌</h6>
+                            <p class="small text-muted mb-2">下載 EZCon/TLPD 真實評測集</p>
+                            <button class="btn btn-secondary btn-sm" onclick="$('.nav-item[data-tab=dataset]').click()">快速下載</button>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3">
+                        <div class="card p-3 border-0 bg-light">
+                            <h6>3. 拖拉 / 貼上驗證</h6>
+                            <p class="small text-muted mb-2">Ctrl+V 貼上截圖即時偵測標籤</p>
+                            <button class="btn btn-success btn-sm" onclick="$('.nav-item[data-tab=inference]').click()">立即測試</button>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-lg-3">
+                        <div class="card p-3 border-0 bg-light">
+                            <h6>4. 一鍵發行 1788</h6>
+                            <p class="small text-muted mb-2">導出獨立 FastAPI 服務包</p>
+                            <button class="btn btn-warning btn-sm" onclick="$('.nav-item[data-tab=release]').click()">發行部署</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Environment Setup Section -->
+        <section id="section-env" class="page-section" style="display: none;">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">環境建置 (Environment Setup)</h1>
+                    <div class="page-desc">一鍵檢查並建置本機執行環境、依賴套件與顯卡加速支援</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">
+                    <span>建置作業進度</span>
+                    <button class="btn btn-outline-secondary btn-sm btn-toggle-terminal" data-target="#term-env">展開/收合 Detail</button>
+                </div>
+                <div class="progress mb-3" style="height: 22px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="prog-env" role="progressbar" style="width: 0%;">0%</div>
+                </div>
+                <div id="status-box-env" class="task-status-box my-2" style="display: none;"></div>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-primary" id="btn-build-env">🚀 開始環境建置與依賴檢查</button>
+                    <span id="badge-env" class="badge bg-success p-2" style="display: none;">✅ 已完成 (100%)</span>
+                </div>
+
+                <!-- Hacker Terminal -->
+                <div class="terminal-window" id="term-env">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">Terminal Console - Environment Build</span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-body"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. Download Datasets Section -->
+        <section id="section-dataset" class="page-section" style="display: none;">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">下載驗證資料 (Download Validation Datasets)</h1>
+                    <div class="page-desc">快速下載台灣真實車牌影像資料集（含 EZCon 辨識標籤與 TLPD 檢測四角標註）</div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="panel h-100">
+                        <h5>EZCon 台灣車牌真實測試集</h5>
+                        <p class="text-muted small">來源：Hugging Face <code>EZCon/taiwan-license-plate-recognition</code><br>包含約 259~297 張真實自用小客車照片，具備文字標註與旋轉框。</p>
+                        <button class="btn btn-primary" id="btn-fetch-ezcon">📥 下載 EZCon 測試集</button>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="panel h-100">
+                        <h5>TLPD 台灣車輛車牌檢測集</h5>
+                        <p class="text-muted small">來源：Hugging Face <code>evan6007/TLPD</code> (MIT 授權)<br>包含 3,032 張台灣車輛街景影像與 LabelMe 車牌多邊形標註。</p>
+                        <button class="btn btn-secondary" id="btn-fetch-tlpd">📥 同步 TLPD 檢測集 (3032張)</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel mt-3">
+                <div class="panel-title">
+                    <span>下載進度與日誌</span>
+                    <button class="btn btn-outline-secondary btn-sm btn-toggle-terminal" data-target="#term-dataset">展開/收合 Detail</button>
+                </div>
+                <div class="progress mb-3" style="height: 22px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" id="prog-dataset" role="progressbar" style="width: 0%;">0%</div>
+                </div>
+                <div id="status-box-dataset" class="task-status-box my-2" style="display: none;"></div>
+                <div class="terminal-window" id="term-dataset">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">Terminal Console - Dataset Downloader</span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-body"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Generate Synthetic Section -->
+        <section id="section-generate" class="page-section" style="display: none;">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">產生範例車牌 (Synthetic Data Generation)</h1>
+                    <div class="page-desc">使用公路局專屬字型與全台統一規則，大量合成訓練與評測車牌</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">生成張數</label>
+                        <input type="number" class="form-control" id="gen-count" value="10000" min="10" max="100000">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">車牌字型</label>
+                        <select class="form-select" id="gen-font">
+                            <option value="taiwan_plate" selected>TaiwanPlate-Regular (台灣車牌專用)</option>
+                            <option value="noto_mono">Noto Sans Mono (開源基準)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">規格模式</label>
+                        <select class="form-select" disabled>
+                            <option selected>全台統一規格 (tw_standard_v1, 34字元)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-success w-100" id="btn-generate-plates">🖨️ 立即產生 10,000 張範例車牌</button>
+                    </div>
+                </div>
+
+                <div class="panel-title">
+                    <span>生成進度</span>
+                    <button class="btn btn-outline-secondary btn-sm btn-toggle-terminal" data-target="#term-gen">展開/收合 Detail</button>
+                </div>
+                <div class="progress mb-3" style="height: 22px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" id="prog-gen" role="progressbar" style="width: 0%;">0%</div>
+                </div>
+                <div id="status-box-gen" class="task-status-box my-2" style="display: none;"></div>
+
+                <div class="terminal-window" id="term-gen">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">Terminal Console - Synthetic Generator</span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-body"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. Train Model Section -->
+        <section id="section-train" class="page-section" style="display: none;">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">模型訓練 (Model Training)</h1>
+                    <div class="page-desc">以本機 PyTorch CTC 架構進行高效訓練，結束自動匯出 ONNX Model Bundle</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="row g-3 align-items-end mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">訓練 Epochs</label>
+                        <input type="number" class="form-control" id="train-epochs" value="5" min="1" max="100">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">解碼類別</label>
+                        <input type="text" class="form-control" value="35 類 (34 字元 + Blank)" disabled>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">匯出格式</label>
+                        <input type="text" class="form-control" value="ONNX Model Bundle v1" disabled>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-danger w-100" id="btn-start-train">🏎️ 開始模型訓練與匯出</button>
+                    </div>
+                </div>
+
+                <div class="panel-title">
+                    <span>訓練與導出進度</span>
+                    <button class="btn btn-outline-secondary btn-sm btn-toggle-terminal" data-target="#term-train">展開/收合 Detail</button>
+                </div>
+                <div class="progress mb-3" style="height: 22px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-danger" id="prog-train" role="progressbar" style="width: 0%;">0%</div>
+                </div>
+                <div id="status-box-train" class="task-status-box my-2" style="display: none;"></div>
+
+                <div class="terminal-window" id="term-train">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">Terminal Console - PyTorch Trainer & Exporter</span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-body"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. Live Inference Section (Drag, Drop, Paste) -->
+        <section id="section-inference" class="page-section" style="display: none;">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">即時驗證 (Live Inference & Detection)</h1>
+                    <div class="page-desc">支援拖拉上傳、點擊檔案，或直接在視窗中按下 Ctrl+V 貼上剪貼簿截圖</div>
+                </div>
+            </div>
+
+            <!-- Drag & Drop / Paste Box -->
+            <div class="drop-zone" id="drop-zone" onclick="$('#file-input').click()">
+                <div class="drop-icon">📁</div>
+                <div class="drop-text">拖拉圖片到這裡、點擊上傳、或直接按下 Ctrl+V 貼上截圖</div>
+                <div class="drop-sub">支援 JPG、PNG、WEBP 格式，立即自動辨識並標繪邊框</div>
+                <input type="file" id="file-input" style="display: none;" accept="image/*">
+            </div>
+
+            <div id="infer-loading" class="text-center py-2 text-primary fw-bold" style="display: none;">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                老司機正在加速辨識中...
+            </div>
+
+            <div class="row g-3">
+                <!-- Left: Visual Canvas Window -->
+                <div class="col-lg-7">
+                    <div class="panel">
+                        <div class="panel-title">🎯 車牌視覺化視窗</div>
+                        <div class="visual-container">
+                            <canvas id="canvas-visual"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Detected Objects Table -->
+                <div class="col-lg-5">
+                    <div class="panel h-100">
+                        <div class="panel-title">📋 辨識物件清單</div>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle" id="table-infer-list">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>車牌</th>
+                                        <th>規格</th>
+                                        <th>信心度</th>
+                                        <th>耗時</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted py-4">請上傳或貼上圖片進行驗證</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 7. Benchmark Section -->
+        <section id="section-benchmark" class="page-section" style="display: none;">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">Release API Benchmark</h1>
+                    <div class="page-desc">測試 3waPlateAI 代表查詢與推論效能，數據包含瀏覽器 AJAX 與本地伺服器處理時間</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="toolbar">
+                    <div>
+                        <label class="form-label small fw-bold">每組回合</label>
+                        <input type="number" class="form-control" id="bench-rounds" value="10">
+                    </div>
+                    <div>
+                        <label class="form-label small fw-bold">Warmup</label>
+                        <input type="number" class="form-control" id="bench-warmup" value="2">
+                    </div>
+                    <div>
+                        <button class="btn btn-primary" id="btn-run-benchmark">開始測試</button>
+                    </div>
+                </div>
+
+                <div class="progress mb-3" style="height: 22px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="prog-benchmark" role="progressbar" style="width: 0%;">0%</div>
+                </div>
+                <div id="status-box-benchmark" class="task-status-box my-2" style="display: none;"></div>
+
+                <div class="terminal-window" id="term-benchmark">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">Terminal Console - Benchmark Runner</span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-body"></div>
+                </div>
+            </div>
+
+            <!-- Benchmark Results -->
+            <div id="benchmark-result-panel" style="display: none;">
+                <div class="panel">
+                    <div class="panel-title">評測統計數據</div>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle" id="table-benchmark">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>案例</th>
+                                    <th>API</th>
+                                    <th>查詢</th>
+                                    <th>成功率</th>
+                                    <th>準確率</th>
+                                    <th>avg ms</th>
+                                    <th>p50 ms</th>
+                                    <th>p95 ms</th>
+                                    <th>max ms</th>
+                                    <th>QPS</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <!-- ECharts Visual Chart -->
+                    <div class="mt-4" style="height: 260px;" id="chart-benchmark"></div>
+
+                    <!-- Markdown Export -->
+                    <div class="mt-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold small text-muted">README Benchmark 表格 (Markdown 原始碼)</span>
+                            <button class="btn btn-sm btn-outline-dark" id="btn-copy-markdown">📋 一鍵複製 Markdown</button>
+                        </div>
+                        <div class="markdown-box" id="benchmark-markdown"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 8. One-Click Release Section (Port 1788) -->
+        <section id="section-release" class="page-section" style="display: none;">
+            <div class="top-bar">
+                <div>
+                    <h1 class="page-title">一鍵發行 (Release Standalone API)</h1>
+                    <div class="page-desc">一鍵打包獨立輕量 FastAPI 與模型 Bundle，方便搬去其他專案用 localhost:1788 一起發發快速部署！</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h5>發行目標設定</h5>
+                <p class="text-muted small">發行包將輸出至 <code>release/3wa_plate_api/</code>，內含 <code>run_api_1788.bat</code> 與極簡 <code>requirements.txt</code>。</p>
+                <button class="btn btn-warning btn-lg fw-bold" id="btn-release">🚀 一鍵打包發行 (Port 1788 一起發發)</button>
+
+                <div class="progress my-3" style="height: 22px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" id="prog-release" role="progressbar" style="width: 0%;">0%</div>
+                </div>
+                <div id="status-box-release" class="task-status-box my-2" style="display: none;"></div>
+
+                <div class="terminal-window" id="term-release">
+                    <div class="terminal-header">
+                        <div class="terminal-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="terminal-title">Terminal Console - Release Packager</span>
+                        <span></span>
+                    </div>
+                    <div class="terminal-body"></div>
+                </div>
+
+                <!-- Release Success Card -->
+                <div class="card bg-success-subtle border-success p-4 mt-3" id="release-success-card" style="display: none;">
+                    <h5 class="text-success fw-bold">🎉 發行套件打包成功！</h5>
+                    <p class="mb-2">發行目錄：<code>release/3wa_plate_api/</code></p>
+                    <p class="mb-3">您可以直接將 <code>release/3wa_plate_api/</code> 整包複製到任何 Python 專案目錄，並在該目錄下執行：</p>
+                    <pre class="bg-dark text-white p-3 rounded"><code>run_api_1788.bat</code></pre>
+                    <p class="mb-0 small text-muted">獨立 API 服務將立即在 <strong>http://localhost:1788</strong> 啟動對外提供推論服務！</p>
+                </div>
+            </div>
+        </section>
+<!-- Universal Task OK Modal -->
+<div class="modal fade" id="modal-task-ok" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-success text-white py-2 px-3">
+        <h6 class="modal-title d-flex align-items-center gap-2 mb-0">
+          <span>🎉</span> <span id="modal-ok-title">任務執行完成</span>
+        </h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4 text-center">
+        <img src="/assets/mascot_avatar.png" class="rounded-circle mb-3 border border-3 border-warning shadow-sm" width="84" height="84" alt="3wa Mascot">
+        <h4 class="text-success fw-bold mb-2" id="modal-ok-heading">執行完成 OK！</h4>
+        <p class="text-secondary mb-0" id="modal-ok-msg">作業已順利處理完畢。</p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0 pb-3">
+        <button type="button" class="btn btn-success px-5 fw-bold btn-lg" data-bs-dismiss="modal" id="btn-modal-ok-confirm">
+          ✅ OK
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Local Offline JS Assets -->
+<script src="/js/jquery.min.js"></script>
+<script src="/js/bootstrap.bundle.min.js"></script>
+<script src="/js/echarts.min.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

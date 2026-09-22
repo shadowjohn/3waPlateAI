@@ -17,6 +17,7 @@ Install the isolated training stack, generate train/validation sets with differe
 
 - **NVIDIA GTX 1080 (Pascal)**: Requires PyTorch built with **`cu118`** (CUDA 11.8). Newer CUDA versions may omit sm_61 architecture support.
 - **NVIDIA RTX 5060, RTX 5090 (Blackwell)**: Requires PyTorch built with **`cu128`** (CUDA 12.8+) to target the latest architecture.
+- **Automatic device detection**: `plateai-train` defaults to `--device auto`. When CUDA is available, training executes on the detected GPU (e.g. `cuda:0`), displaying the GPU device name and epoch losses. If no GPU is available or CUDA initialization fails, it seamlessly falls back to `cpu`.
 - **CPU default**: The locked dependency file (`requirements/py311.training.lock.txt`) installs CPU `torch==2.14.0` for deterministic test verification and CI runs.
 
 ### Character sets and logit classes

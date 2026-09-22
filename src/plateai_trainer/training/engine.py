@@ -42,7 +42,7 @@ class TrainingConfig:
     batch_size: int = 32
     learning_rate: float = 1e-3
     seed: int = 42
-    device: str = "cpu"
+    device: str = "auto"
     charset_path: Path | None = None
     rules_path: Path | None = None
 
@@ -199,6 +199,28 @@ def _atomic_save_checkpoint(path: Path, checkpoint: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def resolve_training_device(device: str | torch.device | None = "auto") -> torch.device:
+    """Resolve training device: default to CUDA if available, falling back to CPU."""
+    if device is None or (isinstance(device, str) and device.strip().lower() == "auto"):
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if isinstance(device, torch.device):
+        dev = device
+    else:
+        try:
+            dev = torch.device(device)
+        except (TypeError, RuntimeError) as exc:
+            raise TrainingDataError(f"invalid device {device!r}") from exc
+    if dev.type == "cuda":
+        if not torch.cuda.is_available():
+            return torch.device("cpu")
+        if dev.index is not None and dev.index >= torch.cuda.device_count():
+            return torch.device("cpu")
+        return dev
+    if dev.type != "cpu" and not torch.cuda.is_available():
+        return torch.device("cpu")
+    return dev
+
+
 def _validate_config(config: TrainingConfig) -> torch.device:
     if config.output_directory.exists():
         raise OutputExistsError(f"output already exists: {config.output_directory}")
@@ -210,19 +232,22 @@ def _validate_config(config: TrainingConfig) -> torch.device:
         raise TrainingDataError("learning rate must be positive")
     if type(config.seed) is not int:
         raise TrainingDataError("seed must be an integer")
-    try:
-        device = torch.device(config.device)
-    except (TypeError, RuntimeError) as exc:
-        raise TrainingDataError(f"invalid device {config.device!r}") from exc
-    if device.type != "cpu" and not torch.cuda.is_available():
-        raise TrainingDataError(f"device is unavailable: {config.device}")
-    return device
+    return resolve_training_device(config.device)
 
 
 def train_recognizer(config: TrainingConfig) -> TrainingRun:
     """Train and publish a local v1 recognition run without replacing output."""
 
     device = _validate_config(config)
+    if device.type == "cuda":
+        try:
+            gpu_name = torch.cuda.get_device_name(device)
+            print(f"Training device: {device} ({gpu_name})")
+        except Exception:
+            print(f"Training device: {device}")
+    else:
+        print("Training device: cpu")
+
     charset_path = config.charset_path or _default_config_path(
         "configs/charsets/tw_new_style_private_passenger_v1.txt"
     )
@@ -270,10 +295,14 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
         best_accuracy = -1.0
         train_loss = 0.0
         validation = EvaluationReport(0, 0.0, 0.0, 0)
-        for _ in range(config.epochs):
+        for epoch in range(1, config.epochs + 1):
             losses = [train_one_batch(model, batch, optimizer).loss for batch in train_loader]
             train_loss = sum(losses) / len(losses)
             validation = evaluate_recognizer(model, validation_loader, codec, device)
+            print(
+                f"Epoch {epoch}/{config.epochs} - train_loss: {train_loss:.4f} "
+                f"- val_acc: {validation.exact_plate_accuracy:.4f}"
+            )
             if validation.exact_plate_accuracy > best_accuracy:
                 best_accuracy = validation.exact_plate_accuracy
                 _atomic_save_checkpoint(

@@ -125,6 +125,7 @@ def generate_dataset(
     request: GenerationRequest,
     *,
     encoder: ImageEncoder = encode_png,
+    progress_callback: Any | None = None,
 ) -> GenerationSummary:
     """Generate into an owned sibling directory, then publish once complete."""
 
@@ -195,6 +196,9 @@ def generate_dataset(
                 image_path = f"images/{index:06d}.png"
                 (staging / image_path).write_bytes(encoded)
                 labels_file.write(f"{image_path}\t{sample.canonical}\n")
+
+                if progress_callback is not None and ((index + 1) % 100 == 0 or (index + 1) == request.count):
+                    progress_callback(index + 1, request.count, sample.display)
 
                 augmentation_keys = (
                     "augmentation_profile_id",

@@ -12,6 +12,7 @@ dist/
 datasets/
 outputs/
 out/
+test_data/
 *.partial/
 
 # Models and accelerator artifacts are never release content

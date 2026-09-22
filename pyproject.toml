@@ -24,6 +24,7 @@ plateai-compose = "plateai_trainer.detection.cli:main"
 plateai-detect-train = "plateai_trainer.detection.train_cli:main"
 plateai-detect-export = "plateai_trainer.detection.export_cli:main"
 plateai-read = "plateai_reader.cli:main"
+plateai-web = "plateai_web.cli:main"
 
 [project.optional-dependencies]
 test = [
@@ -40,6 +41,12 @@ training = [
 reader = [
   "onnx==1.23.0",
   "onnxruntime==1.30.0",
+]
+web = [
+  "fastapi>=0.110.0",
+  "uvicorn>=0.28.0",
+  "python-multipart>=0.0.9",
+  "httpx>=0.27.0",
 ]
 
 [tool.setuptools.packages.find]

@@ -15,3 +15,7 @@ def main(argv: Sequence[str] | None=None) -> int:
     try: export_crop_bundle(ExportRequest(args.checkpoint, args.report, args.output, charset_path=args.charset, rules_path=args.rules))
     except (OutputExistsError, ExportParityError, ValueError, OSError) as exc: print(f"error: {exc}",file=sys.stderr); return 2
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

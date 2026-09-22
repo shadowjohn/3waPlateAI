@@ -233,6 +233,7 @@ def _seed_detector_training(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.set_num_threads(1)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
     # ponytail: CUDA ops without deterministic kernels emit warning instead of crashing

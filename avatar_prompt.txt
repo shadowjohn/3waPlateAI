@@ -1,0 +1,56 @@
+# 3wa 老司機看板娘 (3wa Veteran Driver Girl) - Prompt Specification
+
+## 角色名稱
+- 中文：3wa 老司機看板娘
+- 英文：3wa Veteran Driver Mascot Girl
+- 象徵：台灣車牌辨識 AI 老司機領航員，兼具專業準確度與親切可愛
+
+## 核心外觀特徵 (Character Design DNA)
+1. **服裝配飾 (Costume & Accessories)**:
+   - 深海軍藍搭配金紅滾邊的賽車司機制服（Navy blue driver uniform with gold & crimson trim, epaulets, and brass buttons）。
+   - 老司機大盤司機帽（Chauffeur / Driver cap），帽冠正前方飾有金色「3WA」展翅飛翼金屬徽章（Golden winged 3WA emblem）。
+   - 帽沿上方配備復古防風護目鏡（Retro driver goggles on visor）。
+   - 雙手戴黑色駕駛手套（Black driving gloves）。
+   - 黑色膝上襪（Over-knee black socks）與皮質短靴（Laced ankle boots）。
+
+2. **標誌性道具 (Signature Props)**:
+   - **專屬車牌**：高舉一張標準台灣白底黑字自用小客車車牌，號牌為「3WA-8888」，上方有細小紅色皇冠或台灣字樣。
+   - **跑車方向盤**：另一手握著具備金色 3wa 輪軸的黑色跑車三輻方向盤。
+
+3. **性格與神態 (Expression & Personality)**:
+   - 棕色微捲中短髮、側邊有小巧白色小翅膀髮飾。
+   - 活潑開朗的自信笑顏（Joyful, beaming confident smile, playful winking eyes）。
+   - 充滿朝氣的「老司機帶你飛」、「準備上車出發囉！」的引領感。
+
+4. **美術風格 (Art Style)**:
+   - 日本動漫賽璐珞著色風格（Anime cel-shading style, Chibi / Q-version proportions）。
+   - 清晰乾淨的線條、鮮豔飽和且高對比色彩。
+
+---
+
+## 衍生用途 Prompt 參考清單
+
+### 1. 經典全身立繪 (Full-body Standing Avatar - 現有版本)
+```text
+Anime mascot character illustration, '3wa Veteran Driver Girl' (3wa 老司機看板娘). Cute anime girl wearing a cool racing driver or taxi chauffeur outfit with a jaunty driver's cap and driving goggles. She is cheerfully holding a tiny Taiwan car license plate '3WA-8888' or a cute car steering wheel. Vibrant colors, clean anime cel-shading style, transparent-style simple clean background, adorable mascot sticker avatar for a web application sidebar, kawaii and professional.
+```
+
+### 2. README 寬版橫幅 (Hero Banner for README.md)
+```text
+Wide horizontal banner for '3waPlateAI - Taiwan License Plate Recognition AI System'. On the left/center foreground is the cute anime '3wa Veteran Driver Girl' smiling and giving a confident thumbs-up while holding a Taiwan license plate '3WA-8888'. In the background is a high-tech modern AI laboratory and Taiwanese city highway at night with glowing data streams, cybernetic digital grids, and bounding boxes identifying license plates on passing cars. High resolution 16:9 banner art, ultra-detailed anime concept art.
+```
+
+### 3. 系統 Loading 動態圖 / 旋轉方向盤 (Loading Spinner / In-Progress Screen)
+```text
+Chibi anime mascot '3wa Veteran Driver Girl' in circular or icon view. She is enthusiastically gripping a car steering wheel with speed lines around her, hair blowing in the wind, cute concentrated expression with blushing cheeks, energetic, 'Fast Driving / Accelerating' pose. White background, circular sticker format, ideal for loading animation or spinner icon.
+```
+
+### 4. 成功識別 / 檢測慶祝 (Success / Detection Celebration)
+```text
+Chibi anime mascot '3wa Veteran Driver Girl' jumping joyfully with both hands raised, holding a sparkling green checkmark and Taiwan license plate '3WA-8888', confetti and sparkles around her, cheerful celebration face, kawaii sticker style.
+```
+
+### 5. 終端機除錯 / 思考模式 (Debugging / Terminal Geek Mode)
+```text
+Chibi anime mascot '3wa Veteran Driver Girl' wearing oversized nerdy glasses, looking curiously at a glowing holographic terminal screen with green code matrix streaming by, holding a magnifying glass inspecting a license plate edge, super cute tech geek chauffeur.
+```

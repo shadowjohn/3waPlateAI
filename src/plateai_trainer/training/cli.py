@@ -44,7 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=_positive_integer, default=32)
     parser.add_argument("--learning-rate", type=_positive_float, default=1e-3)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--device",
+        default="auto",
+        help="Device to train on ('auto', 'cuda', 'cpu'; defaults to 'auto' which selects cuda if available, else cpu)",
+    )
     parser.add_argument("--charset", type=Path, default=None)
     parser.add_argument("--rules", type=Path, default=None)
     return parser
@@ -70,3 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
