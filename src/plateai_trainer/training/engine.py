@@ -432,6 +432,8 @@ def train_recognizer(
                 )
 
         report: dict[str, Any] = {
+            "schema_version": 1,
+            "checkpoint_sha256": _sha256_file(staging / "best.pt"),
             "train": {"loss": train_loss},
             "history": history,
             "validation": {

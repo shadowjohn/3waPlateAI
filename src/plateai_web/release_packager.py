@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
+from .paths import workspace_root
 from .tasks import TaskManager
 
 STANDALONE_SERVER_CODE = '''"""3waPlateAI Standalone Inference Server (Port 1788)."""
@@ -108,7 +109,7 @@ pillow>=10.0.0
 
 
 def build_release_task(task_id: str, tm: TaskManager):
-    root = Path(__file__).resolve().parent.parent.parent
+    root = workspace_root()
     release_dir = root / "release" / "3wa_plate_api"
     
     tm.update_progress(task_id, 10, "準備打包 Release 目錄...")

@@ -1,0 +1,34 @@
+{
+  "metrics": {
+    "bbox_iou_min": 0.5,
+    "complete_quad_max_corner_error_640px": 8.0
+  },
+  "minimums": {
+    "detector_plate_instances": 250,
+    "detector_scenes": 200,
+    "e2e_scenes": 100,
+    "oracle_plate_instances": 200,
+    "parity_scenes": 2
+  },
+  "parity": {
+    "atol": 1e-05,
+    "batch_sizes": [
+      1,
+      2
+    ],
+    "rtol": 0.0001
+  },
+  "profile_id": "m4.5-strict-v1",
+  "schema_version": 1,
+  "thresholds": {
+    "detector_bbox_precision_min": 0.9,
+    "detector_bbox_recall_min": 0.9,
+    "detector_complete_quad_precision_min": 0.8,
+    "detector_complete_quad_recall_min": 0.8,
+    "e2e_exact_match_min": 0.85,
+    "e2e_localization_recall_min": 0.9,
+    "e2e_micro_cer_max": 0.05,
+    "oracle_exact_match_min": 0.95,
+    "oracle_micro_cer_max": 0.02
+  }
+}

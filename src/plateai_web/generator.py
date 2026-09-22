@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from plateai_trainer.synthetic.dataset import generate_dataset
 from plateai_trainer.synthetic.models import GenerationRequest
+from .paths import workspace_root
 from .tasks import TaskManager
 
 
@@ -13,11 +14,11 @@ def generate_dataset_task(
     task_id: str,
     tm: TaskManager,
     count: int = 10000,
-    font: str = "taiwan_plate",
+    font: str = "noto_mono",
     seed: int = 42,
     output_dir_name: str = "demo-10000",
 ):
-    root = Path(__file__).resolve().parent.parent.parent
+    root = workspace_root()
     out_dir = root / "out" / output_dir_name
 
     tm.update_progress(task_id, 1, f"準備生成 {count} 張車牌...")
@@ -32,16 +33,7 @@ def generate_dataset_task(
         tm.append_log(task_id, f"[更新] 清理舊有的 {out_dir.name} 目錄，重新生成標準訓練集...")
         shutil.rmtree(out_dir)
 
-    # Determine font path
-    font_path: Path | None = None
-    if font == "taiwan_plate":
-        candidate = root / "assets" / "fonts" / "TaiwanPlate-Regular.ttf"
-        if candidate.exists():
-            font_path = candidate
-        else:
-            candidate2 = root / "assets" / "fonts" / "NotoSansMono-Regular.ttf"
-            if candidate2.exists():
-                font_path = candidate2
+    font_request = None if font in {"", "noto_mono"} else font
 
     # Standard configuration paths
     charset_path = root / "configs" / "charsets" / "tw_standard_v1.txt"
@@ -65,7 +57,7 @@ def generate_dataset_task(
         rules_path=rules_path,
         template_path=template_path,
         augmentation_path=augmentation_path,
-        font=font_path,
+        font=font_request,
     )
 
     t0 = time.perf_counter()

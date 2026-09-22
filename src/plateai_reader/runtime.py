@@ -89,6 +89,15 @@ class ReaderTiming:
 
 
 @dataclass(frozen=True, slots=True)
+class DetectionResult:
+    """Exact retained detector outputs before rectification or recognition."""
+
+    detections: tuple[PlateDetection, ...]
+    providers: tuple[str, ...]
+    detector_ms: float
+
+
+@dataclass(frozen=True, slots=True)
 class ReaderResult:
     plates: tuple[PlateRead, ...]
     rejections: tuple[ReaderRejection, ...]
@@ -339,8 +348,8 @@ class PlateReader:
         )
         self._recognizer_max_batch = components["recognizer"]["batch"]["max"]
 
-    def read(self, image_rgb: object) -> ReaderResult:
-        """Read all retained detections from one uint8 RGB image without rebuilding sessions."""
+    def detect(self, image_rgb: object) -> DetectionResult:
+        """Return the exact retained detector outputs without downstream inference."""
 
         detector_started = perf_counter()
         detector_tensor, transform = letterbox_rgb_v1(image_rgb)
@@ -354,6 +363,17 @@ class PlateReader:
         postprocess = self.manifest["components"]["detector"]["postprocess"]
         detections = postprocess_candidates(candidates, transform, postprocess)
         detector_ms = (perf_counter() - detector_started) * 1000.0
+        return DetectionResult(
+            detections=tuple(detections),
+            providers=self.providers,
+            detector_ms=detector_ms,
+        )
+
+    def read(self, image_rgb: object) -> ReaderResult:
+        """Read all retained detections from one uint8 RGB image without rebuilding sessions."""
+
+        detected = self.detect(image_rgb)
+        detections = detected.detections
 
         rectifier_started = perf_counter()
         accepted: list[tuple[PlateDetection, NDArray[np.uint8]]] = []
@@ -415,9 +435,9 @@ class PlateReader:
         return ReaderResult(
             plates=tuple(plates),
             rejections=tuple(rejections),
-            providers=self.providers,
+            providers=detected.providers,
             timing=ReaderTiming(
-                detector_ms=detector_ms,
+                detector_ms=detected.detector_ms,
                 rectifier_ms=rectifier_ms,
                 recognizer_ms=recognizer_ms,
                 retained_detection_count=len(detections),

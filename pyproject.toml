@@ -24,6 +24,7 @@ plateai-compose = "plateai_trainer.detection.cli:main"
 plateai-detect-train = "plateai_trainer.detection.train_cli:main"
 plateai-detect-export = "plateai_trainer.detection.export_cli:main"
 plateai-read = "plateai_reader.cli:main"
+plateai-eval = "plateai_eval.cli:main"
 plateai-web = "plateai_web.cli:main"
 
 [project.optional-dependencies]
@@ -58,8 +59,14 @@ where = ["src"]
 "share/3wa-plate-ai/configs/plate_templates" = ["configs/plate_templates/*.json"]
 "share/3wa-plate-ai/configs/augmentation" = ["configs/augmentation/*.json"]
 "share/3wa-plate-ai/configs/detection" = ["configs/detection/*.json"]
+"share/3wa-plate-ai/configs/evaluation" = ["configs/evaluation/*.json"]
+"share/3wa-plate-ai/configs/publication" = ["configs/publication/*.json"]
 "share/3wa-plate-ai/schemas" = ["schemas/*.json"]
-"share/3wa-plate-ai/fonts" = ["assets/fonts/*.ttf", "assets/fonts/OFL.txt"]
+"share/3wa-plate-ai/fonts" = ["assets/fonts/NotoSansMono*.ttf", "assets/fonts/OFL.txt"]
+"share/3wa-plate-ai/web" = ["web/*.html"]
+"share/3wa-plate-ai/web/css" = ["web/css/*.css"]
+"share/3wa-plate-ai/web/js" = ["web/js/*.js"]
+"share/3wa-plate-ai/web/assets" = ["web/assets/*.jpg", "web/assets/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

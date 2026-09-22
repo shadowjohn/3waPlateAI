@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from .downloader import download_ezcon_task, download_tlpd_task
 from .evaluator import run_benchmark_task
 from .generator import generate_dataset_task
+from .paths import web_root, workspace_root
 from .predictor import PredictorEngine, predictor
 from .release_packager import build_release_task
 from .tasks import TaskStatus, task_manager
@@ -28,8 +29,8 @@ from .trainer import find_available_datasets, validate_training_request
 from .training_process import launch_training_worker, reconcile_training_tasks
 from .training_store import TrainingStore
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-WEB_DIR = ROOT / "web"
+ROOT = workspace_root()
+WEB_DIR = web_root(ROOT)
 
 app = FastAPI(title="3waPlateAI Studio", version="1.0.0")
 
@@ -204,7 +205,7 @@ def start_fetch_tlpd():
 
 class GenerateRequest(BaseModel):
     count: int = 10000
-    font: str = "taiwan_plate"
+    font: str = "noto_mono"
     seed: int = 42
     output_name: str = "demo-10000"
 

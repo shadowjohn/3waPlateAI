@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://3wa.example/schemas/evaluation_profile.schema.json",
+  "title": "3waPlateAI strict evaluation profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_id", "minimums", "thresholds", "metrics", "parity"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile_id": {"const": "m4.5-strict-v1"},
+    "minimums": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oracle_plate_instances", "detector_scenes", "detector_plate_instances", "e2e_scenes", "parity_scenes"],
+      "properties": {
+        "oracle_plate_instances": {"const": 200},
+        "detector_scenes": {"const": 200},
+        "detector_plate_instances": {"const": 250},
+        "e2e_scenes": {"const": 100},
+        "parity_scenes": {"const": 2}
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oracle_exact_match_min", "oracle_micro_cer_max", "detector_bbox_precision_min", "detector_bbox_recall_min", "detector_complete_quad_precision_min", "detector_complete_quad_recall_min", "e2e_exact_match_min", "e2e_micro_cer_max", "e2e_localization_recall_min"],
+      "properties": {
+        "oracle_exact_match_min": {"const": 0.95},
+        "oracle_micro_cer_max": {"const": 0.02},
+        "detector_bbox_precision_min": {"const": 0.9},
+        "detector_bbox_recall_min": {"const": 0.9},
+        "detector_complete_quad_precision_min": {"const": 0.8},
+        "detector_complete_quad_recall_min": {"const": 0.8},
+        "e2e_exact_match_min": {"const": 0.85},
+        "e2e_micro_cer_max": {"const": 0.05},
+        "e2e_localization_recall_min": {"const": 0.9}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bbox_iou_min", "complete_quad_max_corner_error_640px"],
+      "properties": {
+        "bbox_iou_min": {"const": 0.5},
+        "complete_quad_max_corner_error_640px": {"const": 8.0}
+      }
+    },
+    "parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["batch_sizes", "rtol", "atol"],
+      "properties": {
+        "batch_sizes": {"const": [1, 2]},
+        "rtol": {"const": 0.0001},
+        "atol": {"const": 0.00001}
+      }
+    }
+  }
+}

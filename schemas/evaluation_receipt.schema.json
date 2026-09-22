@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://3wa.example/schemas/evaluation_receipt.schema.json",
+  "title": "3waPlateAI evaluation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "report_sha256", "samples_sha256", "bundle_sha256", "suite_sha256", "profile_sha256", "overall_status"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"$ref": "#/$defs/id"},
+    "report_sha256": {"$ref": "#/$defs/sha256"},
+    "samples_sha256": {"$ref": "#/$defs/sha256"},
+    "bundle_sha256": {"$ref": "#/$defs/sha256"},
+    "suite_sha256": {"$ref": "#/$defs/sha256"},
+    "profile_sha256": {"$ref": "#/$defs/sha256"},
+    "overall_status": {"enum": ["REJECTED", "PASS_LOCAL_ONLY", "PROMOTION_ELIGIBLE"]}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

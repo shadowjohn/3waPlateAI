@@ -11,11 +11,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
+from .paths import workspace_root
 from .tasks import TaskManager, task_manager
 
 
 def download_ezcon_task(task_id: str, tm: TaskManager):
-    root = Path(__file__).resolve().parent.parent.parent
+    root = workspace_root()
     target_dir = root / "datasets" / "restricted" / "ezcon-taiwan-recognition-test"
     
     tm.update_progress(task_id, 10, "正在檢查 EZCon 目錄與權限...")
@@ -123,7 +124,7 @@ def _tlpd_matches(data: bytes, entry: dict) -> bool:
 
 
 def download_tlpd_task(task_id: str, tm: TaskManager, *, root: Path | None = None):
-    root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
+    root = Path(root) if root is not None else workspace_root()
     target = root / 'datasets/tlpd-taiwan-detector'
     try:
         tm.update_progress(task_id, 1, '正在取得固定版本的 TLPD 圖片與標註清單...')

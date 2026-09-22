@@ -141,46 +141,6 @@ class BenchmarkRunner:
         }
         return decoded.canonical, decoded.display, greedy, decoded.log_probability, timings
 
-    def _fallback_contour_locator(self, img_bgr: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
-        """Fallback OpenCV contour-based plate candidate extractor (returns [(corners, bbox)])."""
-        h, w, _ = img_bgr.shape
-        # Downscale large images for heuristic locator speed
-        scale = 1.0
-        max_dim = max(h, w)
-        if max_dim > 960:
-            scale = 960.0 / max_dim
-            proc_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)))
-        else:
-            proc_bgr = img_bgr
-
-        gray = cv2.cvtColor(proc_bgr, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.bilateralFilter(gray, 9, 75, 75)
-        grad_x = cv2.Sobel(blurred, cv2.CV_16S, 1, 0, ksize=3)
-        abs_grad_x = cv2.convertScaleAbs(grad_x)
-        _, thresh = cv2.threshold(abs_grad_x, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (17, 3))
-        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        candidates = []
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < (500 * (scale ** 2)):
-                continue
-            rect = cv2.minAreaRect(cnt)
-            bw, bh = rect[1]
-            if bw == 0 or bh == 0:
-                continue
-            aspect = max(bw, bh) / min(bw, bh)
-            if 1.5 <= aspect <= 5.5:
-                box = cv2.boxPoints(rect)
-                if scale != 1.0:
-                    box = box / scale
-                x, y, cw, ch = cv2.boundingRect(box.astype(np.int32))
-                candidates.append((box.astype(np.float32), np.array([x, y, x + cw, y + ch], dtype=np.float32)))
-        return candidates
-
     def run_benchmark(
         self,
         records: Sequence[dict[str, Any]],
@@ -190,6 +150,10 @@ class BenchmarkRunner:
         progress_cb: Callable[[int, str], None] | None = None,
     ) -> BenchmarkSummary:
         """Run evaluation over records."""
+        if run_e2e and self.reader is None:
+            raise RuntimeError(
+                "diagnostic E2E requires a full bundle with a declared detector"
+            )
         dataset_root = Path(dataset_root)
         total = len(records)
         sample_results: list[EvalSampleResult] = []
@@ -278,33 +242,17 @@ class BenchmarkRunner:
                 best_e2e_greedy = ""
                 detected = False
 
-                if self.reader is not None:
-                    # Use full neural detector
-                    reader_res = self.reader.read(img_rgb)
-                    for plate_read in reader_res.plates:
-                        det_corners = plate_read.detection.corners_xy
-                        iou = calculate_polygon_iou(det_corners, gt_corners)
-                        if iou > best_iou:
-                            best_iou = iou
-                            best_e2e_canon = plate_read.decoded.canonical
-                            best_e2e_disp = plate_read.decoded.display
-                            detected = True
-                else:
-                    # Use contour locator
-                    candidates = self._fallback_contour_locator(img_bgr)
-                    for cand_corners, cand_bbox in candidates:
-                        iou = calculate_polygon_iou(cand_corners, gt_corners)
-                        if iou > best_iou:
-                            best_iou = iou
-                            detected = True
-                            try:
-                                cand_rect = rectify_plate(img_rgb, cand_corners)
-                                c_canon, c_disp, c_greedy, _, _ = self._eval_single_crop(cand_rect.image_rgb)
-                                best_e2e_canon = c_canon
-                                best_e2e_disp = c_disp
-                                best_e2e_greedy = c_greedy
-                            except Exception:
-                                pass
+                assert self.reader is not None
+                reader_res = self.reader.read(img_rgb)
+                for plate_read in reader_res.plates:
+                    det_corners = plate_read.detection.corners_xy
+                    iou = calculate_polygon_iou(det_corners, gt_corners)
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_e2e_canon = plate_read.decoded.canonical
+                        best_e2e_disp = plate_read.decoded.display
+                        best_e2e_greedy = plate_read.raw_greedy_text or ""
+                        detected = True
 
                 t_e2e_end = time.perf_counter()
                 sample.e2e_detected = detected and (best_iou >= 0.5)

@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://3wa.example/schemas/evaluation_report.schema.json",
+  "title": "3waPlateAI immutable evaluation report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "created_at", "evaluator_version", "source_revision", "profile", "bundle", "suite", "environment", "counts", "lane_results", "parity", "decisions", "samples_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"$ref": "#/$defs/id"},
+    "created_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "evaluator_version": {"type": "string", "minLength": 1},
+    "source_revision": {"$ref": "#/$defs/source_revision"},
+    "profile": {"$ref": "#/$defs/profile_identity"},
+    "bundle": {"$ref": "#/$defs/bundle_identity"},
+    "suite": {"$ref": "#/$defs/suite_identity"},
+    "environment": {"$ref": "#/$defs/environment"},
+    "counts": {"$ref": "#/$defs/counts"},
+    "lane_results": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/lane_result"}
+    },
+    "parity": {"$ref": "#/$defs/parity"},
+    "decisions": {"$ref": "#/$defs/decisions"},
+    "samples_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safe_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)(?!.*\\u0000).+$"},
+    "nullable_string": {"type": ["string", "null"]},
+    "profile_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "profile_id", "minimums", "thresholds", "metrics", "parity"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "profile_id": {"const": "m4.5-strict-v1"},
+        "minimums": {"$ref": "#/$defs/counts"},
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["oracle_exact_match_min", "oracle_micro_cer_max", "detector_bbox_precision_min", "detector_bbox_recall_min", "detector_complete_quad_precision_min", "detector_complete_quad_recall_min", "e2e_exact_match_min", "e2e_micro_cer_max", "e2e_localization_recall_min"],
+          "properties": {
+            "oracle_exact_match_min": {"type": "number"},
+            "oracle_micro_cer_max": {"type": "number"},
+            "detector_bbox_precision_min": {"type": "number"},
+            "detector_bbox_recall_min": {"type": "number"},
+            "detector_complete_quad_precision_min": {"type": "number"},
+            "detector_complete_quad_recall_min": {"type": "number"},
+            "e2e_exact_match_min": {"type": "number"},
+            "e2e_micro_cer_max": {"type": "number"},
+            "e2e_localization_recall_min": {"type": "number"}
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bbox_iou_min", "complete_quad_max_corner_error_640px"],
+          "properties": {
+            "bbox_iou_min": {"type": "number"},
+            "complete_quad_max_corner_error_640px": {"type": "number"}
+          }
+        },
+        "parity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["batch_sizes", "rtol", "atol"],
+          "properties": {
+            "batch_sizes": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "rtol": {"type": "number", "minimum": 0},
+            "atol": {"type": "number", "minimum": 0}
+          }
+        }
+      }
+    },
+    "source_revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "dirty", "source_revision_error"],
+      "properties": {
+        "commit": {"oneOf": [{"type": "string", "pattern": "^[0-9a-f]{40}$"}, {"type": "null"}]},
+        "dirty": {"type": ["boolean", "null"]},
+        "source_revision_error": {"$ref": "#/$defs/nullable_string"}
+      }
+    },
+    "profile_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "path", "profile_sha256", "document"],
+      "properties": {
+        "profile_id": {"const": "m4.5-strict-v1"},
+        "path": {"$ref": "#/$defs/safe_path"},
+        "profile_sha256": {"$ref": "#/$defs/sha256"},
+        "document": {"$ref": "#/$defs/profile_document"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sha256"],
+      "properties": {
+        "file": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "bundle_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundle_sha256", "manifest_sha256", "capabilities", "artifacts"],
+      "properties": {
+        "bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["crop-recognition", "plate-detection"]}
+        },
+        "artifacts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/artifact"}}
+      }
+    },
+    "reported_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "revision", "review_status", "local_only", "allowed_uses", "notice"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "revision": {"type": "string", "minLength": 1},
+        "review_status": {"enum": ["reviewed", "restricted", "unreviewed"]},
+        "local_only": {"type": "boolean"},
+        "allowed_uses": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["evaluation", "training", "deployment", "derived-artifact-distribution"]}
+        },
+        "notice": {"type": "string", "minLength": 1}
+      }
+    },
+    "reported_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_id", "sha256"],
+      "properties": {
+        "manifest_id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "suite_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["suite_id", "revision", "suite_sha256", "snapshot_sha256", "sources", "manifests"],
+      "properties": {
+        "suite_id": {"$ref": "#/$defs/id"},
+        "revision": {"type": "string", "minLength": 1},
+        "suite_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/reported_source"}},
+        "manifests": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/reported_manifest"}}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["python", "platform", "numpy", "opencv", "onnx", "onnxruntime", "pytorch", "hardware", "requested_provider", "actual_provider", "warmup_runs", "measured_rounds"],
+      "properties": {
+        "python": {"type": "string", "minLength": 1},
+        "platform": {"type": "string", "minLength": 1},
+        "numpy": {"type": "string", "minLength": 1},
+        "opencv": {"type": "string", "minLength": 1},
+        "onnx": {"type": "string", "minLength": 1},
+        "onnxruntime": {"type": "string", "minLength": 1},
+        "pytorch": {"type": "string", "minLength": 1},
+        "hardware": {"type": "string", "minLength": 1},
+        "requested_provider": {"type": "string", "minLength": 1},
+        "actual_provider": {"type": "string", "minLength": 1},
+        "warmup_runs": {"const": 0},
+        "measured_rounds": {"const": 1}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oracle_plate_instances", "detector_scenes", "detector_plate_instances", "e2e_scenes", "parity_scenes"],
+      "properties": {
+        "oracle_plate_instances": {"type": "integer", "minimum": 0},
+        "detector_scenes": {"type": "integer", "minimum": 0},
+        "detector_plate_instances": {"type": "integer", "minimum": 0},
+        "e2e_scenes": {"type": "integer", "minimum": 0},
+        "parity_scenes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "truth_count": {"type": "integer", "minimum": 0},
+        "prediction_count": {"type": "integer", "minimum": 0},
+        "exact_match_count": {"type": "integer", "minimum": 0},
+        "total_edit_distance": {"type": "integer", "minimum": 0},
+        "total_truth_characters": {"type": "integer", "minimum": 0},
+        "exact_match": {"type": "number", "minimum": 0},
+        "micro_cer": {"type": "number", "minimum": 0},
+        "bbox_true_positives": {"type": "integer", "minimum": 0},
+        "bbox_precision": {"type": "number", "minimum": 0},
+        "bbox_recall": {"type": "number", "minimum": 0},
+        "complete_quad_true_positives": {"type": "integer", "minimum": 0},
+        "complete_quad_precision": {"type": "number", "minimum": 0},
+        "complete_quad_recall": {"type": "number", "minimum": 0},
+        "localization_true_positives": {"type": "integer", "minimum": 0},
+        "localization_recall": {"type": "number", "minimum": 0}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "observed", "operator", "required", "passed"],
+      "properties": {
+        "metric": {"type": "string", "minLength": 1},
+        "observed": {"type": ["number", "integer", "boolean"]},
+        "operator": {"enum": [">=", "<=", "=="]},
+        "required": {"type": ["number", "integer", "boolean"]},
+        "passed": {"type": "boolean"}
+      }
+    },
+    "attribution_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "DETECTOR_MISSED": {"type": "integer", "minimum": 0},
+        "DETECTOR_FALSE_POSITIVE": {"type": "integer", "minimum": 0},
+        "DETECTOR_BAD_BBOX": {"type": "integer", "minimum": 0},
+        "DETECTOR_BAD_QUAD": {"type": "integer", "minimum": 0},
+        "RECTIFIER_REJECTED": {"type": "integer", "minimum": 0},
+        "RECOGNIZER_MISREAD": {"type": "integer", "minimum": 0},
+        "RULE_FILTERED": {"type": "integer", "minimum": 0},
+        "SUCCESS": {"type": "integer", "minimum": 0}
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations", "p50", "p95"],
+      "properties": {
+        "observations": {"type": "integer", "minimum": 0},
+        "p50": {"type": ["number", "null"], "minimum": 0},
+        "p95": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "lane_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lane", "scene_count", "instance_count", "processed_scene_count", "processed_instance_count", "error_count", "metrics", "threshold_checks", "passed", "attribution_counts", "latency_ms"],
+      "properties": {
+        "lane": {"enum": ["oracle_ocr", "detector", "end_to_end"]},
+        "scene_count": {"type": "integer", "minimum": 0},
+        "instance_count": {"type": "integer", "minimum": 0},
+        "processed_scene_count": {"type": "integer", "minimum": 0},
+        "processed_instance_count": {"type": "integer", "minimum": 0},
+        "error_count": {"type": "integer", "minimum": 0},
+        "metrics": {"$ref": "#/$defs/metrics"},
+        "threshold_checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+        "passed": {"type": "boolean"},
+        "attribution_counts": {"$ref": "#/$defs/attribution_counts"},
+        "latency_ms": {"$ref": "#/$defs/latency"}
+      }
+    },
+    "parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failures", "batch_sizes", "diagnostic_raw_difference_count", "recognizer_checkpoint_sha256", "detector_checkpoint_sha256", "provider", "pytorch_device"],
+      "properties": {
+        "passed": {"type": "boolean"},
+        "failures": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "batch_sizes": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}},
+        "diagnostic_raw_difference_count": {"type": "integer", "minimum": 0},
+        "recognizer_checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "detector_checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+        "provider": {"type": "string", "minLength": 1},
+        "pytorch_device": {"type": "string", "minLength": 1}
+      }
+    },
+    "decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["technical_gate", "rights_gate", "overall_status", "checks"],
+      "properties": {
+        "technical_gate": {"enum": ["pass", "fail"]},
+        "rights_gate": {"enum": ["pass", "restricted", "unreviewed"]},
+        "overall_status": {"enum": ["REJECTED", "PASS_LOCAL_ONLY", "PROMOTION_ELIGIBLE"]},
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}}
+      }
+    }
+  }
+}

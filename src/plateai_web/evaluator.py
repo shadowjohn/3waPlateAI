@@ -2,13 +2,31 @@
 from __future__ import annotations
 
 import json
-import statistics
 import time
 from pathlib import Path
-from typing import Any
 
-from plateai_bench import BenchmarkRunner, BenchmarkSummary
+from plateai_bench import BenchmarkRunner
+from .paths import workspace_root
 from .tasks import TaskManager
+
+
+ROOT = workspace_root()
+
+
+def _diagnostic_result(
+    status: str, message: str, **values: object
+) -> dict[str, object]:
+    return {
+        "experimental_diagnostic": True,
+        "m4_5_status": None,
+        "status": status,
+        "message": message,
+        **values,
+    }
+
+
+def _display_latency(value: float | None) -> float | str:
+    return "N/A" if value is None else value
 
 
 def run_benchmark_task(
@@ -18,23 +36,20 @@ def run_benchmark_task(
     rounds: int = 10,
     warmup: int = 2,
 ):
-    root = Path(__file__).resolve().parent.parent.parent
+    root = ROOT
     tm.update_progress(task_id, 5, "正在準備 Benchmark 評測環境與模型...")
     tm.append_log(task_id, "=== 3waPlateAI 道路實拍基準評測 (Real-Photo Benchmark) ===")
     
     # 1. Locate active bundle
-    bundles_root = root / "models" / "bundles"
-    bundle_dir = bundles_root / "active-v1"
+    bundle_dir = root / "models" / "bundles" / "active-v1"
     if not (bundle_dir / "recognizer.onnx").exists():
-        candidates = sorted([d for d in bundles_root.glob("train-*") if (d / "recognizer.onnx").exists()], reverse=True)
-        if candidates:
-            bundle_dir = candidates[0]
-        else:
-            bundle_dir = bundles_root / "tw-std-v1-recognizer"
-            
-    if not (bundle_dir / "recognizer.onnx").exists():
-        tm.append_log(task_id, f"[錯誤] 找不到可用的模型 Bundle (檢查目錄: {bundles_root})")
-        tm.complete_task(task_id, result={"status": "error"}, message="找不到可用模型")
+        message = "找不到指定的診斷模型 Bundle: models/bundles/active-v1"
+        tm.append_log(task_id, f"[錯誤] {message}")
+        tm.complete_task(
+            task_id,
+            result=_diagnostic_result("error", message),
+            message=message,
+        )
         return
 
     tm.append_log(task_id, f"載入評測模型 Bundle: {bundle_dir.name}")
@@ -42,7 +57,11 @@ def run_benchmark_task(
         runner = BenchmarkRunner(bundle_dir)
     except Exception as exc:
         tm.append_log(task_id, f"[錯誤] 初始化評測器失敗: {exc}")
-        tm.complete_task(task_id, result={"status": "error"}, message=str(exc))
+        tm.complete_task(
+            task_id,
+            result=_diagnostic_result("error", str(exc)),
+            message=str(exc),
+        )
         return
 
     # 2. Prepare test sets
@@ -124,27 +143,37 @@ def run_benchmark_task(
             overall_pct = 20 + int((s_idx + pct / 100.0) / len(test_scenarios) * 75)
             tm.update_progress(task_id, overall_pct, f"{sc_name}: {msg}")
 
-        summary = runner.run_benchmark(
-            records=sc_records,
-            dataset_root=scenario["dataset_root"],
-            dataset_name=sc_name,
-            run_e2e=scenario["run_e2e"],
-            progress_cb=bench_progress,
-        )
+        try:
+            summary = runner.run_benchmark(
+                records=sc_records,
+                dataset_root=scenario["dataset_root"],
+                dataset_name=sc_name,
+                run_e2e=scenario["run_e2e"],
+                progress_cb=bench_progress,
+            )
+        except Exception as exc:
+            message = f"{sc_name}: {exc}"
+            tm.append_log(task_id, f"  [錯誤] {message}")
+            tm.complete_task(
+                task_id,
+                result=_diagnostic_result("error", message),
+                message=message,
+            )
+            return
 
         if not scenario["run_e2e"]:
             acc_str = f"{summary.oracle_accuracy * 100:.1f}% (CER {summary.oracle_cer * 100:.1f}%)"
             avg_ms = summary.oracle_avg_latency_ms
             p50_ms = summary.oracle_p50_latency_ms
             p95_ms = summary.oracle_p95_latency_ms
-            max_ms = round(summary.oracle_p95_latency_ms * 1.15, 1)
+            max_ms = None
             success_count = int(summary.oracle_accuracy * len(sc_records))
         else:
             acc_str = f"{summary.e2e_accuracy * 100:.1f}% (檢出 {summary.localization_recall * 100:.1f}%)"
             avg_ms = summary.e2e_avg_latency_ms
-            p50_ms = avg_ms
-            p95_ms = round(avg_ms * 1.2, 1)
-            max_ms = round(avg_ms * 1.35, 1)
+            p50_ms = None
+            p95_ms = None
+            max_ms = None
             success_count = int(summary.e2e_accuracy * len(sc_records))
 
         qps = round(1000.0 / avg_ms, 1) if avg_ms > 0 else 0
@@ -175,7 +204,7 @@ def run_benchmark_task(
     ]
     for r in results:
         md_lines.append(
-            f"| {r['date']} | {r['case']} | {r['api']} | {r['query']} | {r['success']} | {r['accuracy']} | {r['avg_ms']} | {r['p50_ms']} | {r['p95_ms']} | {r['max_ms']} | {r['qps']} |"
+            f"| {r['date']} | {r['case']} | {r['api']} | {r['query']} | {r['success']} | {r['accuracy']} | {r['avg_ms']} | {_display_latency(r['p50_ms'])} | {_display_latency(r['p95_ms'])} | {_display_latency(r['max_ms'])} | {r['qps']} |"
         )
     markdown_output = "\n".join(md_lines)
 
@@ -183,10 +212,11 @@ def run_benchmark_task(
     tm.update_progress(task_id, 100, "道路實拍 Benchmark 測試完成！")
     tm.complete_task(
         task_id,
-        result={
-            "status": "success",
-            "results": results,
-            "markdown": markdown_output,
-        },
+        result=_diagnostic_result(
+            "success",
+            "實拍 Benchmark 評測全數完成！",
+            results=results,
+            markdown=markdown_output,
+        ),
         message="實拍 Benchmark 評測全數完成！",
     )

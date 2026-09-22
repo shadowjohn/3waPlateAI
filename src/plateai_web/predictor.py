@@ -14,6 +14,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from .paths import workspace_root
+
 try:
     import onnxruntime as ort
     from plateai_reader.runtime import PlateReader, decode_constrained_ctc_v1, _default_schema_path
@@ -61,7 +63,7 @@ class PredictorEngine:
             raise ValueError('minimum_recognition_score must be in [0,1]')
         if not isinstance(bundle_name, str) or Path(bundle_name).name != bundle_name:
             raise ValueError('bundle_name must be a single directory name')
-        self.root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
+        self.root = Path(root) if root is not None else workspace_root()
         self.minimum_recognition_score = minimum_recognition_score
         self.bundle_name = bundle_name
         self.preview_only = preview_only

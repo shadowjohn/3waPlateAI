@@ -1,6 +1,9 @@
 include THIRD_PARTY_NOTICES.md
 recursive-include configs *.json *.txt
-recursive-include assets/fonts *.ttf *.txt
+include assets/fonts/NotoSansMono*.ttf
+include assets/fonts/OFL.txt
+exclude assets/fonts/TaiwanPlate-Regular.ttf
+recursive-include web *.html *.css *.js *.jpg *.png
 recursive-include docs *.md
 include models/README.md
 recursive-include schemas *.json

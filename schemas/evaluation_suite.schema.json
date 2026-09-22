@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://3wa.example/schemas/evaluation_suite.schema.json",
+  "title": "3waPlateAI evaluation suite",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "suite_id", "revision", "sources", "manifests"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "suite_id": {"$ref": "#/$defs/id"},
+    "revision": {"type": "string", "minLength": 1},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "manifests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/manifest"}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safe_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)(?!.*\\u0000).+$"},
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_status", "local_only", "allowed_uses", "notice"],
+      "properties": {
+        "review_status": {"enum": ["reviewed", "restricted", "unreviewed"]},
+        "local_only": {"type": "boolean"},
+        "allowed_uses": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["evaluation", "training", "deployment", "derived-artifact-distribution"]}
+        },
+        "notice": {"type": "string", "minLength": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "root", "revision", "rights"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/id"},
+        "root": {"$ref": "#/$defs/safe_path"},
+        "revision": {"type": "string", "minLength": 1},
+        "split": {"type": "string", "minLength": 1},
+        "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "rights": {"$ref": "#/$defs/rights"}
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_id", "file", "sha256", "lanes"],
+      "properties": {
+        "manifest_id": {"$ref": "#/$defs/id"},
+        "file": {"$ref": "#/$defs/safe_path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "lanes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["oracle_ocr", "detector", "end_to_end", "parity"]}
+        }
+      }
+    }
+  }
+}

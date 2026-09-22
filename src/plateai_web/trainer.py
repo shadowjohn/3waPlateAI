@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from plateai_trainer.training.control import TrainingProgress
+from .paths import package_data_root
 
 
-_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_PACKAGED_DATA_ROOT = package_data_root()
 _TASK_ID_RE = re.compile(r"[0-9a-f]{12}\Z")
 _RUN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _WINDOWS_RESERVED_NAMES = {
@@ -44,7 +45,7 @@ def _resolve_config_path(root: Path, relative_path: str, *, field: str) -> Path:
     path = Path(relative_path)
     if path.is_absolute() or any(part == ".." for part in path.parts):
         raise ValueError(f"{field} must reference a bundled configuration file")
-    for base in (root, _REPOSITORY_ROOT):
+    for base in (root, _PACKAGED_DATA_ROOT):
         candidate = (base / path).resolve()
         try:
             candidate.relative_to(base.resolve())

@@ -15,6 +15,7 @@ $ProjectRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $VenvPath = Join-Path $ProjectRoot '.venv'
 $PythonPath = Join-Path $VenvPath 'Scripts\python.exe'
 $TrainingLockPath = Join-Path $ProjectRoot 'requirements\py311.training.lock.txt'
+$WebLockPath = Join-Path $ProjectRoot 'requirements\py311.web.lock.txt'
 $DistributionPath = Join-Path $ProjectRoot 'dist'
 
 $TorchCu118Version = 'torch==2.7.1+cu118'
@@ -195,7 +196,8 @@ try {
         Invoke-Checked -FilePath $PythonPath -ArgumentList @('-m', 'pip', 'install', '-r', $TrainingLockPath)
     }
 
-    Invoke-Checked -FilePath $PythonPath -ArgumentList @('-m', 'pip', 'install', '--no-deps', '-e', '.[test,training]')
+    Invoke-Checked -FilePath $PythonPath -ArgumentList @('-m', 'pip', 'install', '-r', $WebLockPath)
+    Invoke-Checked -FilePath $PythonPath -ArgumentList @('-m', 'pip', 'install', '--no-deps', '-e', '.[test,training,reader,web]')
 
     Install-PyTorchForGpu -Target $CudaTarget
 
@@ -231,6 +233,13 @@ try {
         }
         Write-Host 'Checking the installed Reader command...'
         Invoke-Checked -FilePath $ReaderCommand -ArgumentList @('--help')
+
+        $EvaluationCommand = Join-Path $VenvPath 'Scripts\plateai-eval.exe'
+        if (-not (Test-Path -LiteralPath $EvaluationCommand)) {
+            throw 'The built wheel did not install plateai-eval.exe.'
+        }
+        Write-Host 'Checking the installed evaluation command...'
+        Invoke-Checked -FilePath $EvaluationCommand -ArgumentList @('--help')
 
         $SmokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "3wa-plate-ai-build-$PID"
         try {

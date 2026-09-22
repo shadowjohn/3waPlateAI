@@ -16,6 +16,7 @@ from .rectifier import (
 )
 from .runtime import (
     DecodedPlate,
+    DetectionResult,
     PlateRead,
     PlateReader,
     ReaderError,
@@ -30,6 +31,7 @@ __all__ = [
     "DetectionRectificationResult",
     "DetectionRejection",
     "DecodedPlate",
+    "DetectionResult",
     "InvalidCornersError",
     "NormalizedCorners",
     "PlateRead",

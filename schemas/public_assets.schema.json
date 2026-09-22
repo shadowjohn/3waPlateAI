@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://3wa.example/schemas/public_assets.schema.json",
+  "title": "3waPlateAI Public Asset Inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "assets"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "kind",
+          "source",
+          "redistribution_basis"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?![A-Za-z]:)[^\\\\\\u0000]+$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "synthetic-fixture",
+              "brand-art",
+              "third-party-font",
+              "documentation-image"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "redistribution_basis": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sysconfig
 
@@ -13,6 +14,7 @@ _INSTALL_DATA_ROOT = Path(sysconfig.get_path("data")) / "share" / "3wa-plate-ai"
 _DEFAULT_FONT_NAME = "NotoSansMono[wdth,wght].ttf"
 _TAIWAN_PLATE_FONT_NAME = "TaiwanPlate-Regular.ttf"
 _DEFAULT_VARIATION_AXES = (700, 62)
+_LOCAL_FONT_ENV = "PLATEAI_LOCAL_FONT_DIR"
 
 
 def _bundled_font_path(name: str) -> Path:
@@ -33,6 +35,22 @@ def _default_font_path() -> Path:
     return _bundled_font_path(_DEFAULT_FONT_NAME)
 
 
+def _local_taiwan_plate_font_path() -> Path:
+    configured = os.environ.get(_LOCAL_FONT_ENV)
+    directory = (
+        Path(configured).expanduser()
+        if configured
+        else _REPOSITORY_ROOT / "assets" / "local" / "fonts"
+    )
+    path = directory / _TAIWAN_PLATE_FONT_NAME
+    if not path.is_file() or path.is_symlink():
+        raise FileNotFoundError(
+            "local Taiwan plate font is missing; set PLATEAI_LOCAL_FONT_DIR "
+            "or pass an explicit --font path"
+        )
+    return path.resolve()
+
+
 def resolve_font(value: str | Path | None) -> FontSpec:
     """Resolve the bundled OFL font or a user-provided TrueType/OpenType path."""
 
@@ -46,7 +64,7 @@ def resolve_font(value: str | Path | None) -> FontSpec:
         )
 
     if str(value) in {"taiwan_plate", "official", _TAIWAN_PLATE_FONT_NAME}:
-        path = _bundled_font_path(_TAIWAN_PLATE_FONT_NAME)
+        path = _local_taiwan_plate_font_path()
         return FontSpec(kind="truetype", name=path.name, path=path)
 
     path = Path(value)

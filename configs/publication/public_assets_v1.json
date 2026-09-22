@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "path": "assets/fonts/NotoSansMono[wdth,wght].ttf",
+      "sha256": "2cb2adb378a8f574213e23df697050b83c54c27df465a2015552740b2769a081",
+      "kind": "third-party-font",
+      "source": "Google Fonts Noto Sans Mono",
+      "redistribution_basis": "SIL OFL-1.1"
+    },
+    {
+      "path": "assets/mascot.jpg",
+      "sha256": "26dcb8f829ea59bfac0428b238b3719ea22c3bb611f7c4cd9fc1b2603623965f",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "assets/mascot_avatar.png",
+      "sha256": "07febdeeab1aca5ca8b88c963862e1fd99c4cce0c8264e8d910c30d55e2bd2ef",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "assets/mascot_transparent.png",
+      "sha256": "f9cf62785c4b48b10e887e971459aeaafd5717b268a02cbadc84297757d73e65",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "assets/readme_banner.jpg",
+      "sha256": "a8bf54031a3d4947bfa50cee31e60ad21bac17b0fa19f5502f562b78f54361f0",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "tests/fixtures/synthetic/000000.png",
+      "sha256": "b33c6e7f678b16e36eb42d25655e4255c6177e5c7ab962db9d262a01ac200ef8",
+      "kind": "synthetic-fixture",
+      "source": "3waPlateAI deterministic synthetic generator",
+      "redistribution_basis": "MIT project fixture"
+    },
+    {
+      "path": "tests/fixtures/synthetic/000001.png",
+      "sha256": "1291f0005a4665ca68b85e90efdc9113d78310ba7eecde22d6d6a1cd52e5fd82",
+      "kind": "synthetic-fixture",
+      "source": "3waPlateAI deterministic synthetic generator",
+      "redistribution_basis": "MIT project fixture"
+    },
+    {
+      "path": "tests/fixtures/synthetic/000002.png",
+      "sha256": "81bc39f183f6b123a2198e1dc35382e6dc9bb799b30dbf09fa9aa41cde1e8cf1",
+      "kind": "synthetic-fixture",
+      "source": "3waPlateAI deterministic synthetic generator",
+      "redistribution_basis": "MIT project fixture"
+    },
+    {
+      "path": "tests/fixtures/synthetic/000003.png",
+      "sha256": "3446c7dcf778470067535d672bf483d536795e886ceacdcebfe53a2109dea874",
+      "kind": "synthetic-fixture",
+      "source": "3waPlateAI deterministic synthetic generator",
+      "redistribution_basis": "MIT project fixture"
+    },
+    {
+      "path": "web/assets/mascot.jpg",
+      "sha256": "26dcb8f829ea59bfac0428b238b3719ea22c3bb611f7c4cd9fc1b2603623965f",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "web/assets/mascot_avatar.png",
+      "sha256": "07febdeeab1aca5ca8b88c963862e1fd99c4cce0c8264e8d910c30d55e2bd2ef",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "web/assets/mascot_pointing.jpg",
+      "sha256": "326244b2f469cc31b5f9699e29fda8d9128339711ab6d2aa00e5fd9f14748c4f",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "web/assets/mascot_pointing.png",
+      "sha256": "7549b76d4a7dfdc885be592f5698a479e35ba80d5e1808ea1cc0730a26dc4342",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "web/assets/mascot_transparent.png",
+      "sha256": "3a4a32137d096c0f7d6715a0d5b229b617bd9586b0d059d2cbeaee5d680d668f",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    },
+    {
+      "path": "web/assets/readme_banner.jpg",
+      "sha256": "8dd4e209db4cb51a12154180ab768531bdf25323790db0cc9a855405be80ed0c",
+      "kind": "brand-art",
+      "source": "3waPlateAI project-owned generated artwork",
+      "redistribution_basis": "MIT project asset"
+    }
+  ]
+}

@@ -124,7 +124,10 @@ def test_predict_fixture_image(web_client: TestClient):
     assert "detections" in data
     assert "diagnostics" in data
     diag = data["diagnostics"]
-    assert diag["pipeline_mode"] in ("hybrid_heuristic", "neural_full_pipeline")
+    # The public source checkout deliberately ships without an ONNX Bundle.
+    assert data["status"] == "model_error"
+    assert diag["pipeline_mode"] == "unavailable"
+    assert diag["detector_available"] is False
     assert "timing_breakdown" in diag
     tb = diag["timing_breakdown"]
     for key in ("locator_ms", "rectifier_ms", "onnx_inference_ms", "ctc_decoding_ms", "total_ms"):
@@ -211,6 +214,8 @@ def test_predict_plate_reader_contract_alignment(monkeypatch: pytest.MonkeyPatch
             return fake_result
 
     monkeypatch.setattr(predictor, "reader", FakePlateReader())
+    monkeypatch.setattr(predictor, "recognizer_session", object())
+    monkeypatch.setattr(predictor, "load_error", None)
     monkeypatch.setattr(predictor, "_load_active_model", lambda: None)
     
     # Run prediction on a dummy white 100x200 image

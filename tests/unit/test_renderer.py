@@ -54,14 +54,29 @@ def test_template_rejects_out_of_bounds_text_box(
     "value",
     ("taiwan_plate", Path("taiwan_plate"), "official", Path("official")),
 )
-def test_resolve_taiwan_plate_font(default_template, value):
-    font = resolve_font(value)
+def test_taiwan_plate_alias_requires_a_local_authorized_font(monkeypatch, value):
+    monkeypatch.delenv("PLATEAI_LOCAL_FONT_DIR", raising=False)
+
+    with pytest.raises(FileNotFoundError, match="local Taiwan plate font is missing"):
+        resolve_font(value)
+
+
+def test_taiwan_plate_alias_accepts_a_local_authorized_font(
+    default_template, monkeypatch, tmp_path
+):
+    local_font_dir = tmp_path / "authorized-fonts"
+    local_font_dir.mkdir()
+    source_font = resolve_font(None)
+    assert source_font.path is not None
+    local_font = local_font_dir / "TaiwanPlate-Regular.ttf"
+    local_font.write_bytes(source_font.path.read_bytes())
+    monkeypatch.setenv("PLATEAI_LOCAL_FONT_DIR", str(local_font_dir))
+
+    font = resolve_font("taiwan_plate")
     assert font.kind == "truetype"
     assert font.name == "TaiwanPlate-Regular.ttf"
-    assert font.path is not None
-    assert font.path.is_file()
+    assert font.path == local_font.resolve()
 
-    # Verify rendering with TaiwanPlate font
     sample = GeneratedPlate("AQ560", "AQ-560", "moto-red-2-3", "moto-red")
     rendered = render_plate(sample, default_template, font)
     assert rendered.image_rgb.shape == (96, 320, 3)
