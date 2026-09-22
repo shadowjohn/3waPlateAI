@@ -5,6 +5,7 @@ import base64
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import time
 import uuid
@@ -220,7 +221,45 @@ def start_generate_dataset(req: GenerateRequest):
     return {"status": "started", "task_id": task_id}
 
 
+def _read_gpu_utilization() -> dict[str, float | str | None]:
+    """Read instantaneous GPU 0 utilization from NVIDIA's local driver tool."""
+
+    unavailable: dict[str, float | str | None] = {
+        "gpu_utilization_percent": None,
+        "memory_utilization_percent": None,
+        "metrics_source": "unavailable",
+    }
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--id=0",
+                "--query-gpu=utilization.gpu,utilization.memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            check=True,
+            encoding="utf-8",
+            errors="replace",
+            text=True,
+            timeout=1,
+        )
+        fields = completed.stdout.strip().splitlines()[0].split(",")
+        gpu_utilization = float(fields[0].strip())
+        memory_utilization = float(fields[1].strip())
+        if not 0 <= gpu_utilization <= 100 or not 0 <= memory_utilization <= 100:
+            return unavailable
+        return {
+            "gpu_utilization_percent": gpu_utilization,
+            "memory_utilization_percent": memory_utilization,
+            "metrics_source": "nvidia-smi",
+        }
+    except (IndexError, OSError, ValueError, subprocess.SubprocessError):
+        return unavailable
+
+
 def get_gpu_memory_info() -> dict[str, Any]:
+    utilization = _read_gpu_utilization()
     try:
         import torch
         if torch.cuda.is_available():
@@ -238,6 +277,7 @@ def get_gpu_memory_info() -> dict[str, Any]:
                 "free_mb": round(free_b / (1024 * 1024), 1),
                 "percent": round((used_b / total_b) * 100, 1),
                 "timestamp": time.strftime("%H:%M:%S"),
+                **utilization,
             }
     except Exception:
         pass
@@ -252,6 +292,7 @@ def get_gpu_memory_info() -> dict[str, Any]:
         "free_mb": 0.0,
         "percent": 0.0,
         "timestamp": time.strftime("%H:%M:%S"),
+        **utilization,
     }
 
 

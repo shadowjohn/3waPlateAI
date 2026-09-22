@@ -67,10 +67,33 @@ def test_system_status_and_sample_dataset(web_client: TestClient):
     assert datasets[0]["count"] == 1
 
 
-def test_gpu_memory_api(web_client: TestClient):
+def test_gpu_memory_api_reports_nvidia_gpu_utilization(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    from plateai_web import app as app_module
+
+    calls: list[tuple[list[str], dict]] = []
+
+    class NvidiaSmiResult:
+        stdout = "73, 19\r\n"
+
+    def fake_nvidia_smi(command: list[str], **kwargs):
+        calls.append((command, kwargs))
+        return NvidiaSmiResult()
+
+    monkeypatch.setattr("subprocess.run", fake_nvidia_smi)
     data = web_client.get("/api/system/gpu_memory").json()
     assert "percent" in data
     assert "device_name" in data
+    assert data["gpu_utilization_percent"] == 73.0
+    assert data["memory_utilization_percent"] == 19.0
+    assert data["metrics_source"] == "nvidia-smi"
+    assert calls[0][0] == [
+        "nvidia-smi",
+        "--id=0",
+        "--query-gpu=utilization.gpu,utilization.memory",
+        "--format=csv,noheader,nounits",
+    ]
 
 
 def test_train_active_and_stop_without_a_worker(web_client: TestClient):

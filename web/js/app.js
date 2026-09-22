@@ -464,7 +464,7 @@ $(function () {
         });
     }
 
-    // GPU VRAM (GRAM) Real-time Monitor
+    // GPU utilization real-time monitor, with VRAM retained as supporting context.
     let gramChart = null;
     let gramHistory = [];
     const MAX_GRAM_POINTS = 30;
@@ -477,8 +477,8 @@ $(function () {
         }
         const option = {
             title: {
-                text: "GPU 顯存 (GRAM) 即時負載",
-                subtext: "每 3 秒自動輪詢 CUDA 記憶體",
+                text: "GPU 使用率 即時負載",
+                subtext: "每 3 秒透過 NVIDIA 驅動讀取 GPU 使用率",
                 left: "center",
                 textStyle: { fontSize: 13, fontWeight: "bold", color: "#1e293b" },
                 subtextStyle: { fontSize: 11, color: "#64748b" }
@@ -491,13 +491,13 @@ $(function () {
                     const time = params[0].name;
                     let html = `<strong>${time}</strong><br/>`;
                     params.forEach(p => {
-                        html += `${p.marker} ${p.seriesName}: <strong>${p.value}</strong>${p.seriesIndex === 0 ? " GB" : "%"}<br/>`;
+                        html += `${p.marker} ${p.seriesName}: <strong>${p.value}</strong>${p.seriesIndex === 0 ? "%" : " GB"}<br/>`;
                     });
                     return html;
                 }
             },
             legend: {
-                data: ["顯存用量 (GB)", "使用率 (%)"],
+                data: ["GPU 運算 (%)", "顯存用量 (GB)"],
                 bottom: 2,
                 textStyle: { fontSize: 12 }
             },
@@ -516,43 +516,44 @@ $(function () {
             yAxis: [
                 {
                     type: "value",
-                    name: "VRAM (GB)",
+                    name: "GPU 使用率 (%)",
                     position: "left",
                     min: 0,
+                    max: 100,
+                    axisLabel: { formatter: "{value}%" },
                     splitLine: { lineStyle: { type: "dashed", color: "#e2e8f0" } }
                 },
                 {
                     type: "value",
-                    name: "使用率 (%)",
+                    name: "VRAM (GB)",
                     position: "right",
                     min: 0,
-                    max: 100,
                     splitLine: { show: false },
-                    axisLabel: { formatter: "{value}%" }
+                    axisLabel: { formatter: "{value} GB" }
                 }
             ],
             series: [
                 {
-                    name: "顯存用量 (GB)",
+                    name: "GPU 運算 (%)",
                     type: "line",
                     smooth: true,
                     yAxisIndex: 0,
-                    itemStyle: { color: "#6366f1" },
+                    itemStyle: { color: "#06b6d4" },
                     lineStyle: { width: 3 },
                     areaStyle: {
                         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: "rgba(99, 102, 241, 0.35)" },
-                            { offset: 1, color: "rgba(99, 102, 241, 0.02)" }
+                            { offset: 0, color: "rgba(6, 182, 212, 0.35)" },
+                            { offset: 1, color: "rgba(6, 182, 212, 0.02)" }
                         ])
                     },
                     data: []
                 },
                 {
-                    name: "使用率 (%)",
+                    name: "顯存用量 (GB)",
                     type: "line",
                     smooth: true,
                     yAxisIndex: 1,
-                    itemStyle: { color: "#f59e0b" },
+                    itemStyle: { color: "#6366f1" },
                     lineStyle: { width: 2, type: "dashed" },
                     data: []
                 }
@@ -569,7 +570,9 @@ $(function () {
                 $("#gram-device-badge").text(info.device_name);
             }
             if (info.available) {
-                $("#gram-usage-text").text(`${info.used_gb} GB / ${info.total_gb} GB (${info.percent}%)`);
+                const gpuUsage = info.gpu_utilization_percent;
+                const usageText = gpuUsage == null ? "GPU 使用率無法取得" : `${gpuUsage}% GPU`;
+                $("#gram-usage-text").text(`${usageText} · ${info.used_gb} GB / ${info.total_gb} GB VRAM`);
             } else {
                 $("#gram-usage-text").text(`${info.used_mb} MB (${info.percent}%)`);
             }
@@ -578,7 +581,7 @@ $(function () {
             gramHistory.push({
                 time: nowTime,
                 used_gb: info.used_gb,
-                percent: info.percent,
+                gpu_utilization_percent: info.gpu_utilization_percent,
                 total_gb: info.total_gb
             });
             if (gramHistory.length > MAX_GRAM_POINTS) {
@@ -594,12 +597,12 @@ $(function () {
                         data: gramHistory.map(g => g.time)
                     },
                     yAxis: [
-                        { max: info.total_gb ? Math.ceil(info.total_gb) : undefined },
-                        { max: 100 }
+                        { max: 100 },
+                        { max: info.total_gb ? Math.ceil(info.total_gb) : undefined }
                     ],
                     series: [
-                        { name: "顯存用量 (GB)", data: gramHistory.map(g => g.used_gb) },
-                        { name: "使用率 (%)", data: gramHistory.map(g => g.percent) }
+                        { name: "GPU 運算 (%)", data: gramHistory.map(g => g.gpu_utilization_percent) },
+                        { name: "顯存用量 (GB)", data: gramHistory.map(g => g.used_gb) }
                     ]
                 });
             }
