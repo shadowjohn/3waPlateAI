@@ -50,8 +50,7 @@ def local_runs(tmp_path_factory):
     detector_run = train_detector(DetectorTrainingConfig(
         make_dataset(root, "detector-train"),
         make_dataset(root, "detector-validation", color=21, seed=8),
-        # A one-step network has near-flat scores at float32 rounding precision;
-        # use a learned score distribution for exact native/ORT NMS parity.
+        # Keep a small trained checkpoint for real export/report integration.
         root / "detector-run", epochs=40, batch_size=1, seed=11,
     ))
     return crop, detector_run
@@ -92,6 +91,20 @@ def test_detector_export_merges_valid_crop_bundle_and_matches_onnx(full_bundle, 
         bundle_validation.validate_crop_bundle(full_bundle, SCHEMA)
 
 
+def test_real_detector_cannot_inherit_reviewed_synthetic_provenance(export_api, local_runs, tmp_path):
+    crop, run = local_runs
+    report = json.loads(run.report_path.read_text(encoding='utf-8'))
+    report['data_provenance'] = {'training_data': 'real', 'license_reviewed': False,
+                                 'local_only': True, 'source': {'dataset_id': 'test/unreviewed'}}
+    report_path = tmp_path / 'real_report.json'
+    report_path.write_text(json.dumps(report), encoding='utf-8')
+    output = export_api.export_full_bundle(export_api.DetectionExportRequest(
+        crop, run.best_checkpoint, report_path, tmp_path / 'real-full'))
+    manifest = bundle_validation.validate_model_bundle(output, SCHEMA)
+    assert manifest['provenance']['training_data'] == 'mixed'
+    assert manifest['provenance']['license_reviewed'] is False
+
+
 def test_native_and_onnx_candidates_keep_the_same_nms_survivors(full_bundle, local_runs):
     model = PlatePoseNet().eval()
     model.load_state_dict(torch.load(local_runs[1].best_checkpoint, weights_only=True)["model_state_dict"])
@@ -108,9 +121,25 @@ def test_native_and_onnx_candidates_keep_the_same_nms_survivors(full_bundle, loc
         exported = session.run(["candidates"], {"images": values})[0]
         np.testing.assert_allclose(native, exported, rtol=1e-4, atol=1e-5)
         for left, right in zip(native, exported, strict=True):
-            retained = numpy_nms_v1(left, .25, .50, 100)
-            assert retained, "the fixture must exercise non-empty NMS"
-            assert retained == numpy_nms_v1(right, .25, .50, 100)
+            # Noise may legitimately have no positives with the 1% prior.
+            assert numpy_nms_v1(left, .25, .50, 100) == numpy_nms_v1(right, .25, .50, 100)
+
+
+def test_positive_nms_parity_without_requiring_noise_to_be_a_plate(export_api, tmp_path):
+    # Controlled test-only heads ensure positive candidates and deterministic
+    # exact score ties. Do not turn background detections into a training goal.
+    torch.manual_seed(42)
+    model = PlatePoseNet().eval()
+    with torch.no_grad():
+        for level, head in enumerate(model.heads):
+            head.weight[4].zero_()
+            head.bias[4] = 1. + level
+    path = tmp_path / 'positive-heads.onnx'
+    export_api._export_detector_onnx(model, path)
+    session = create_cpu_session(path)
+    export_api._assert_detector_onnx_parity(model, session)
+    rows = session.run(['candidates'], {'images': np.zeros((1, 3, 640, 640), np.float32)})[0][0]
+    assert numpy_nms_v1(rows, .25, .50, 100)
 
 
 @pytest.mark.parametrize("filename", ["extra.onnx", "nested/extra.onnx"])

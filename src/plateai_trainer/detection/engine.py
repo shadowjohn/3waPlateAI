@@ -1,4 +1,4 @@
-"""Deterministic CPU training and atomic, local-only detector runs."""
+"""Seeded CPU/CUDA training and atomic, local-only detector runs."""
 
 from __future__ import annotations
 
@@ -18,9 +18,10 @@ from torch.utils.data import DataLoader
 
 from plateai_reader.rectifier import InvalidCornersError, rectify_plate
 from plateai_shared.publication import OutputExistsError, publish_directory_no_replace, remove_owned_staging
-from .dataset import DetectionDataError, DetectionDataset, validate_train_validation_pair
+from .dataset import DetectionDataError, validate_train_validation_pair
 from .loss import detection_loss
 from .model import PlatePoseNet
+from .real_dataset import load_detection_dataset
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +127,8 @@ def _prediction_metrics(predictions, truths):
     dummy_rgb = np.zeros((640, 640, 3), dtype=np.uint8)
     for image_index, (rows, instances) in enumerate(zip(predictions, truths, strict=True)):
         totals["total_gt"] += len(instances)
-        strata["instance_count"][str(len(instances))] += 1
+        instance_count = strata["instance_count"]
+        instance_count[str(len(instances))] = instance_count.get(str(len(instances)), 0) + 1
         for instance in instances:
             box = instance.bbox_xyxy
             short = min(box[2] - box[0], box[3] - box[1])
@@ -187,7 +189,7 @@ def _finite_loss(loss):
 def _step(model, optimizer, images, samples):
     model.train()
     optimizer.zero_grad(set_to_none=True)
-    loss = detection_loss(model(images), [sample.targets for sample in samples]).total
+    loss = detection_loss(model(images.to(next(model.parameters()).device)), [sample.targets for sample in samples]).total
     value = _finite_loss(loss)
     loss.backward()
     if any(parameter.grad is not None and not torch.isfinite(parameter.grad).all() for parameter in model.parameters()):
@@ -202,13 +204,13 @@ def _evaluate(model, loader):
     loss_sum = count = 0
     with torch.no_grad():
         for images, samples in loader:
-            rows = model(images)
+            rows = model(images.to(next(model.parameters()).device))
             if not torch.isfinite(rows).all():
                 raise DetectionDataError("non-finite validation predictions")
             loss = _finite_loss(detection_loss(rows, [sample.targets for sample in samples]).total)
             loss_sum += loss * len(samples)
             count += len(samples)
-            predictions.extend(rows.numpy())
+            predictions.extend(rows.cpu().numpy())
             truths.extend(sample.instances for sample in samples)
     return {**_prediction_metrics(predictions, truths), "loss": loss_sum / count}
 
@@ -250,13 +252,15 @@ def _validate_config(config):
         raise DetectionDataError("learning_rate must be positive and finite")
     if type(config.seed) is not int or not 0 <= config.seed < 2**32:
         raise DetectionDataError("seed must be an integer in [0, 2**32)")
-    if config.device != "cpu":
-        raise DetectionDataError("this deterministic trainer supports device=cpu only")
+    if config.device not in ("cpu", "cuda"):
+        raise DetectionDataError("device must be cpu or cuda")
+    if config.device == "cuda" and not torch.cuda.is_available():
+        raise DetectionDataError("CUDA was requested but is unavailable")
 
 
 def _runtime_provenance():
     modules = {name: importlib.import_module(f"plateai_trainer.detection.{name}")
-               for name in ("model", "loss", "targets", "dataset", "engine")}
+               for name in ("model", "loss", "targets", "dataset", "real_dataset", "engine")}
     modules["letterbox"] = importlib.import_module("plateai_shared.detection")
     modules["rectifier"] = importlib.import_module("plateai_reader.rectifier")
     source_hashes = {name: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
@@ -275,20 +279,27 @@ def _runtime_provenance():
 def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
     """Publish best.pt and report.json together into a new directory only."""
     _validate_config(config)
-    train = DetectionDataset(config.train_directory)
-    validation = DetectionDataset(config.validation_directory)
+    train = load_detection_dataset(config.train_directory)
+    validation = load_detection_dataset(config.validation_directory)
+    for dataset, split in ((train, 'train'), (validation, 'validation')):
+        if hasattr(dataset, 'provenance') and dataset.provenance['split'] != split:
+            raise DetectionDataError(f'real data split must be {split}; test data is evaluation-only')
     validate_train_validation_pair(train, validation)
     _seed_detector_training(config.seed)
     train_loader = DataLoader(train, batch_size=config.batch_size, shuffle=True,
                               generator=torch.Generator().manual_seed(config.seed), num_workers=0, collate_fn=_collate)
     validation_loader = DataLoader(validation, batch_size=config.batch_size, shuffle=False,
                                    num_workers=0, collate_fn=_collate)
-    model = PlatePoseNet()
+    model = PlatePoseNet().to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
     config_values = {key: str(value) if isinstance(value, Path) else value for key, value in asdict(config).items()}
     config_hash = hashlib.sha256(json.dumps(config_values, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
     inputs = {"train": train.input_hashes, "validation": validation.input_hashes}
     runtime = _runtime_provenance()
+    provenance = getattr(train, 'provenance', {
+        'training_data': 'synthetic', 'license_reviewed': False, 'local_only': True,
+        'license_boundary': 'source-only run; no dataset/font redistribution review is implied',
+    })
     config.output_directory.parent.mkdir(parents=True, exist_ok=True)
     staging = config.output_directory.parent / f".{config.output_directory.name}.partial-{uuid.uuid4().hex}"
     staging.mkdir(exist_ok=False)
@@ -304,14 +315,16 @@ def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
                 count += len(samples)
             train_loss = total_loss / count
             metrics = _evaluate(model, validation_loader)
-            history.append({"epoch": epoch, "train_loss": train_loss, "validation_loss": metrics["loss"], "bbox_ap50": metrics["bbox_ap50"]})
+            history.append({"epoch": epoch, "train_loss": train_loss, "validation_loss": metrics["loss"],
+                            **{name: metrics[name] for name in ('bbox_ap50', 'complete_quad_precision', 'complete_quad_recall', 'corner_error_640px', 'nms_predictions')}})
+            print(json.dumps(history[-1], allow_nan=False), flush=True)
             key = (metrics["bbox_ap50"], -metrics["loss"])
             if best_key is None or key > best_key:
                 best_key, best_metrics, best_epoch = key, metrics, epoch
                 torch.save({"schema_version": 1, "architecture": "PlatePoseNet", "model_state_dict": model.state_dict(),
                             "epoch": epoch, "input_shape": [3, 640, 640], "output_shape": [8400, 13],
                             "preprocess": "letterbox_rgb_v1", "corner_order": ["left_top", "right_top", "right_bottom", "left_bottom"],
-                            "input_hashes": inputs, "runtime_provenance": runtime,
+                            "input_hashes": inputs, "runtime_provenance": runtime, "data_provenance": provenance,
                             "config": config_values, "config_sha256": config_hash}, staging / "best.pt")
         overfit = _overfit_smoke(train)
         train.verify_unchanged()
@@ -322,10 +335,13 @@ def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
                   "epochs": history, "overfit": overfit, "metric_config": dict(_METRIC_CONFIG),
                   "input_hashes": inputs, "config": config_values, "config_sha256": config_hash,
                   "runtime_provenance": runtime,
+                  "data_provenance": provenance,
+                  "optimization": {"objectness_normalization": "sum / max(1, batch_positive_cells)", "initial_objectness_prior": 0.01},
                   "checkpoint_sha256": hashlib.sha256((staging / "best.pt").read_bytes()).hexdigest(),
                   "pytorch_version": str(torch.__version__), "numpy_version": np.__version__,
                   "seed": config.seed, "cpu_threads": 1, "num_workers": 0,
-                  "validation_boundary": "local synthetic composites only; no real-image or production accuracy claim"}
+                  "validation_boundary": ("local real-image validation split; no production accuracy claim; data/weights not for redistribution"
+                      if hasattr(validation, 'provenance') else "local synthetic composites only; no real-image or production accuracy claim")}
         (staging / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8", newline="\n")
         publish_directory_no_replace(staging, config.output_directory)
     except BaseException:

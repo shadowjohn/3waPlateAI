@@ -931,18 +931,23 @@ $(function () {
     let currentImageObj = null;
 
     function handleImageInference(formData) {
+        const previewCandidate = $("#toggle-candidate-preview").prop("checked");
         setMascotLine("抓到了！老司機眼睛一亮，正在全速辨識中...🔍");
         $("#infer-loading").show();
 
         $.ajax({
-            url: "/api/predict",
+            url: previewCandidate ? "/api/predict/compare" : "/api/predict",
             type: "POST",
             data: formData,
             processData: false,
             contentType: false,
             success: function (res) {
                 $("#infer-loading").hide();
-                renderInferenceResult(res);
+                if (previewCandidate) {
+                    renderInferenceResult(res.active, res.candidate, res.preview);
+                } else {
+                    renderInferenceResult(res);
+                }
             },
             error: function (err) {
                 $("#infer-loading").hide();
@@ -951,7 +956,68 @@ $(function () {
         });
     }
 
-    function renderInferenceResult(res) {
+    function overlayDiagnosticCandidates(records, color, dashed, label) {
+        if (!ctx) return;
+        records.forEach(function (det) {
+            if (!det.polygon || det.polygon.length < 4) return;
+            ctx.save();
+            ctx.lineWidth = Math.max(2, Math.round(canvas.width / 300));
+            ctx.strokeStyle = color;
+            ctx.setLineDash(dashed ? [8, 5] : []);
+            ctx.beginPath();
+            ctx.moveTo(det.polygon[0][0], det.polygon[0][1]);
+            for (let i = 1; i < det.polygon.length; i++) ctx.lineTo(det.polygon[i][0], det.polygon[i][1]);
+            ctx.closePath();
+            ctx.stroke();
+            const tagX = det.box ? det.box[0] : det.polygon[0][0];
+            const tagY = Math.max(24, (det.box ? det.box[1] : det.polygon[0][1]) - 5);
+            ctx.font = `bold ${Math.max(15, Math.round(canvas.width / 44))}px Consolas, sans-serif`;
+            ctx.fillStyle = color;
+            ctx.fillText(label, tagX, tagY);
+            ctx.restore();
+        });
+    }
+
+    function renderCandidatePreview(candidate, preview) {
+        const $summary = $("#infer-ab-summary");
+        $summary.empty();
+        if (!candidate) {
+            $summary.hide();
+            return;
+        }
+        const candidateDiag = candidate.diagnostics || {};
+        const accepted = candidate.detections || [];
+        const rejected = candidate.rejections || [];
+        const label = candidateDiag.bundle_name || (preview && preview.candidate_bundle) || "候選模型";
+        const $title = $("<div>").addClass("fw-bold mb-1").text("本機 A/B 定位對照（未啟用、不影響現役模型）");
+        const $counts = $("<div>").text(
+            `現役：${(preview && preview.active_bundle) || "active-v1"}；候選：${label}；候選 ${accepted.length} 通過／${rejected.length} 拒絕`
+        );
+        const $notice = $("<div>").addClass("mt-1 text-danger").text(
+            "紫色實線＝候選通過辨識；紫色虛線＝候選定位到但未通過 OCR，僅供定位診斷。"
+        );
+        $summary.append($title, $counts, $notice);
+        const warnings = candidateDiag.warnings || [];
+        if (candidateDiag.error) warnings.unshift(`候選推論錯誤：${candidateDiag.error}`);
+        warnings.forEach(function (warning) {
+            $summary.append($("<div>").addClass("mt-1").text(warning));
+        });
+        const crops = accepted.concat(rejected).filter(function (item) { return item.crop_base64; }).slice(0, 3);
+        if (crops.length) {
+            const $crops = $("<div>").addClass("d-flex align-items-center gap-2 mt-2");
+            $crops.append($("<span>").text("候選實際裁切："));
+            crops.forEach(function (item) {
+                $crops.append($("<img>").attr("src", item.crop_base64).attr("alt", "候選定位裁切")
+                    .addClass("rounded border").css({ width: "114px", height: "48px", objectFit: "contain" }));
+            });
+            $summary.append($crops);
+        }
+        $summary.show();
+        overlayDiagnosticCandidates(accepted, "#7c3aed", false, "候選");
+        overlayDiagnosticCandidates(rejected, "#7c3aed", true, "候選診斷");
+    }
+
+    function renderInferenceResult(res, candidate, preview) {
         if (!ctx || !currentImageObj) return;
 
         // Set canvas dimensions matching original image
@@ -984,6 +1050,7 @@ $(function () {
         $("#time-ctc").text(tb.ctc_decoding_ms !== undefined ? tb.ctc_decoding_ms : 0);
         $("#time-total").text(res.latency_ms || tb.total_ms || 0);
         $("#infer-diagnostic-bar").fadeIn();
+        $("#infer-ab-summary").hide().empty();
 
         let $warnings = $("#infer-model-warnings");
         if (!$warnings.length) {
@@ -1027,10 +1094,8 @@ $(function () {
                 (rejected.length ? "沒有通過辨識條件的車牌；候選與拒絕原因可在下方展開。" : "目前定位器未找到車牌。");
             $list.append($("<tr>").append($("<td>").attr("colspan", 6).addClass("text-center text-muted py-4").text(message)));
             setMascotLine(message);
-            return;
-        }
-
-        res.detections.forEach(function (det, idx) {
+        } else {
+            res.detections.forEach(function (det, idx) {
             // Draw polygon / bounding box
             ctx.lineWidth = Math.max(3, Math.round(canvas.width / 250));
             ctx.strokeStyle = "#22c55e"; // bright green
@@ -1089,10 +1154,12 @@ $(function () {
                 </td>
                 <td>${timingText}</td>
             </tr>`;
-            $list.append(row);
-        });
+                $list.append(row);
+            });
 
-        setMascotLine(`辨識結果【${res.detections[0].plate_text}】，${rejected.length} 個候選被拒絕；總耗時 ${res.latency_ms}ms。`);
+            setMascotLine(`辨識結果【${res.detections[0].plate_text}】，${rejected.length} 個候選被拒絕；總耗時 ${res.latency_ms}ms。`);
+        }
+        renderCandidatePreview(candidate, preview);
     }
 
     $(document).on("click", ".crop-inspect-btn", function () {

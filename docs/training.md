@@ -204,3 +204,47 @@ The path must name a readable `.ttf` or `.otf` file. Before redistributing a fon
 Users may combine generated data with lawfully obtained real data, implement the later training milestone, and package the result locally according to `schemas/model_manifest.schema.json`. CTC manifests must declare the integer `blank_index`, `class_count = visible symbols + 1`, and `charset-order-skipping-blank`. Recognizers must also declare either dynamic batch limits or a fixed batch with neutral padding and discarded padded outputs.
 
 No generated dataset or resulting model is automatically licensed by this project's MIT license. Dataset collection, privacy, jurisdiction-specific vehicle/plate rules, font rights, compute, evaluation, and model maintenance remain the user's responsibility.
+
+## Real-scene Detector experiment (local only)
+
+This path trains only the native Detector. It does not generate fonts, train OCR,
+change `active-v1`, or confer distribution rights. EZCon's license is unresolved;
+use only under the explicit local-experiment acknowledgement described in
+`evaluation-sources.md`. Keep the existing recognition-test images out of training.
+
+```powershell
+.\.venv\Scripts\python -m pip install -r requirements/py311.data.lock.txt
+.\.venv\Scripts\python tools/fetch_ezcon_detection.py `
+  --cache datasets/restricted/ezcon-taiwan-detection-raw `
+  --output out/ezcon-detector-v1 `
+  --holdout-images datasets/restricted/ezcon-taiwan-recognition-test/images `
+  --holdout-images datasets/real_benchmarks/images `
+  --acknowledge-unreviewed-license
+.\.venv\Scripts\plateai-detect-train `
+  --train out/ezcon-detector-v1/train `
+  --validation out/ezcon-detector-v1/validation `
+  --output runs/detector-real-v1 --epochs 30 --batch-size 16 --device cuda
+.\.venv\Scripts\python tools/evaluate_detector.py `
+  --test out/ezcon-detector-v1/test `
+  --baseline runs/detector-run-v1/best.pt `
+  --candidate runs/detector-real-v1/best.pt `
+  --output out/detector-real-v1-evaluation --device cuda
+```
+
+Outputs refuse overwrite. CPU remains supported and tested; CUDA is seeded but
+cross-device bitwise determinism is not promised. Real images are decoded once
+into an immutable RAM snapshot (~3 GiB for this import), and input hashes are
+rechecked before publishing. Full plate polygons become existing multi-instance
+targets; geometry/reader contracts are unchanged.
+
+Objectness focal loss is summed and divided by the batch's positive-cell count
+(minimum denominator one), not by all 8,400 cells. New heads start with a 1%
+objectness prior; existing checkpoint weights override it when loaded. Full-bundle
+export combines Detector/Recognizer data provenance and cannot inherit a reviewed
+license flag from just the Recognizer.
+
+Select weights on validation, then freeze before scoring test. Compare bbox and
+all-four-corner quality separately, and inspect actual top-confidence crops. A
+falling loss, fewer candidates, successful ONNX export, or high crop-only OCR
+accuracy does not establish correct full-scene localization. Evaluation never
+activates a candidate model automatically.

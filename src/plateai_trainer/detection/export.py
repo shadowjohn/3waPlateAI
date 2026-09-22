@@ -156,6 +156,18 @@ def export_full_bundle(
         manifest["provenance"]["detector_training_report"] = {
             "file": "detector_report.json", "sha256": _sha(staging / "detector_report.json"),
         }
+        detector_provenance = report.get("data_provenance", {})
+        detector_data = detector_provenance.get("training_data", "synthetic")
+        if detector_data not in ("synthetic", "mixed", "real"):
+            raise ValueError("invalid detector data provenance")
+        crop_data = manifest["provenance"]["training_data"]
+        manifest["provenance"]["training_data"] = crop_data if crop_data == detector_data else "mixed"
+        # A reviewed recognizer cannot confer its status on an unreviewed
+        # detector dataset. Local-only restrictions stay in the hashed report.
+        manifest["provenance"]["license_reviewed"] = (
+            manifest["provenance"]["license_reviewed"] is True
+            and detector_provenance.get("license_reviewed") is True
+        )
         (staging / "manifest.json").write_text(json.dumps(manifest, indent=2, allow_nan=False) + "\n", encoding="utf-8", newline="\n")
         validate_model_bundle(staging, schema)
         publish_directory_no_replace(staging, request.output)

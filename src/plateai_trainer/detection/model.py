@@ -7,6 +7,7 @@ RB.y, LB.x, LB.y in 640x640 letterbox pixels.
 
 from __future__ import annotations
 
+import math
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -87,6 +88,10 @@ class PlatePoseNet(nn.Module):
         self.backbone = _Backbone()
         self.neck = _Neck()
         self.heads = nn.ModuleList(nn.Conv2d(64, 13, 1) for _ in range(3))
+        # Dense grids are overwhelmingly background. Start at a 1% prior;
+        # this affects new training only, not loading existing checkpoints.
+        for head in self.heads:
+            nn.init.constant_(head.bias[4:5], -math.log(99.0))
         for stride in (8, 16, 32):
             axis = torch.arange(640 // stride, dtype=torch.float32)
             yy, xx = torch.meshgrid(axis, axis, indexing="ij")

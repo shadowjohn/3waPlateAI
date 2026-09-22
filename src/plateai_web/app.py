@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from .downloader import download_ezcon_task, download_tlpd_task
 from .evaluator import run_benchmark_task
 from .generator import generate_dataset_task
-from .predictor import predictor
+from .predictor import PredictorEngine, predictor
 from .release_packager import build_release_task
 from .tasks import TaskStatus, task_manager
 from .trainer import find_available_datasets, validate_training_request
@@ -32,6 +32,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 WEB_DIR = ROOT / "web"
 
 app = FastAPI(title="3waPlateAI Studio", version="1.0.0")
+
+CANDIDATE_BUNDLE = "candidate-detector-real-v1"
+_candidate_engine: PredictorEngine | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -508,27 +511,61 @@ class PredictBase64Request(BaseModel):
     image_base64: str
 
 
+def _candidate_predictor() -> PredictorEngine:
+    """Return the fixed local preview bundle; never select paths from a request."""
+    global _candidate_engine
+    if _candidate_engine is None or _candidate_engine.root != ROOT:
+        _candidate_engine = PredictorEngine(
+            ROOT, bundle_name=CANDIDATE_BUNDLE, preview_only=True,
+        )
+    return _candidate_engine
+
+
+async def _uploaded_image_bytes(
+    file: UploadFile | None,
+    image_base64: str | None,
+) -> bytes:
+    if file is not None:
+        return await file.read()
+    if image_base64 is not None:
+        if "," in image_base64:
+            image_base64 = image_base64.split(",", 1)[1]
+        return base64.b64decode(image_base64)
+    raise HTTPException(status_code=400, detail="未收到有效的圖片檔案或 Base64 數據")
+
+
 @app.post("/api/predict")
 async def predict_image_upload(
     file: UploadFile | None = None,
     image_base64: str | None = Form(None),
 ):
     """Predict plate via file upload or base64 (for Ctrl+V pasting)."""
-    image_bytes: bytes | None = None
-
-    if file is not None:
-        image_bytes = await file.read()
-    elif image_base64 is not None:
-        # Strip data:image/...;base64, prefix if present
-        if "," in image_base64:
-            image_base64 = image_base64.split(",", 1)[1]
-        image_bytes = base64.b64decode(image_base64)
-    else:
-        raise HTTPException(status_code=400, detail="未收到有效的圖片檔案或 Base64 數據")
-
     try:
-        result = predictor.predict_image(image_bytes)
+        result = predictor.predict_image(await _uploaded_image_bytes(file, image_base64))
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/predict/compare")
+async def compare_image_upload(
+    file: UploadFile | None = None,
+    image_base64: str | None = Form(None),
+):
+    """Run active and fixed experimental candidate on identical uploaded bytes."""
+    try:
+        image_bytes = await _uploaded_image_bytes(file, image_base64)
+        return {
+            "active": predictor.predict_image(image_bytes),
+            "candidate": _candidate_predictor().predict_image(image_bytes),
+            "preview": {
+                "active_bundle": "active-v1",
+                "candidate_bundle": CANDIDATE_BUNDLE,
+                "activation_changed": False,
+            },
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

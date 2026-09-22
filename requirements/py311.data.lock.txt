@@ -1,0 +1,2 @@
+# Optional local-only parquet import tooling; not a Reader dependency.
+pyarrow==25.0.1

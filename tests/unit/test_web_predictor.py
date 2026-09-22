@@ -128,3 +128,12 @@ def test_corrupt_bundle_cannot_load_an_unvalidated_recognizer(tmp_path):
     assert response['status'] == 'model_error'
     assert response['model_status'] == 'not_loaded'
     assert response['diagnostics']['error']
+
+
+def test_preview_engine_is_bound_to_candidate_and_marks_unreviewed_local_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(PredictorEngine, '_load_active_model', lambda self: None)
+    value = PredictorEngine(root=tmp_path, bundle_name='candidate-detector-real-v1', preview_only=True)
+    value.manifest_data = {'provenance': {'training_data': 'mixed', 'license_reviewed': False}}
+    value._read_model_warnings(value._bundle_path())
+    assert value._bundle_path() == tmp_path / 'models' / 'bundles' / 'candidate-detector-real-v1'
+    assert any('本機 A/B 候選' in warning for warning in value.model_warnings)

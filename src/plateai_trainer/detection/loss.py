@@ -47,13 +47,15 @@ def _ciou_loss(predicted: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
 def detection_loss(
     predictions: torch.Tensor, targets: DetectionTargets | Sequence[DetectionTargets]
 ) -> DetectorLoss:
-    """Mean focal BCE across all cells; positive-only geometry means.
+    """Sum focal BCE normalized by positive count; positive geometry means.
 
     Pass a single DetectionTargets for batch one, or one target object per
     image in batch order. Arrays are copied to predictions' device/dtype.
     Empty-positive batches retain a differentiable zero geometry loss.
     Objectness uses gamma=2.0, alpha=0.25 for positives and 1-alpha for
     negatives: -alpha_t * (1-p_t)**gamma * log(p_t).
+    Normalizing by all 8,400 cells diluted objectness relative to geometry
+    by hundreds-fold. Empty-positive batches use a denominator of one.
     """
     batch_targets = [targets] if isinstance(targets, DetectionTargets) else list(targets)
     if predictions.ndim != 3 or tuple(predictions.shape[1:]) != (8400, 13) or predictions.shape[0] != len(batch_targets) or not batch_targets:
@@ -70,7 +72,8 @@ def detection_loss(
     bce = F.binary_cross_entropy(probabilities, objectness_targets, reduction="none")
     p_t = probabilities * objectness_targets + (1 - probabilities) * (1 - objectness_targets)
     alpha_t = FOCAL_ALPHA * objectness_targets + (1 - FOCAL_ALPHA) * (1 - objectness_targets)
-    objectness = (alpha_t * (1 - p_t).pow(FOCAL_GAMMA) * bce).mean()
+    positive_count = sum(len(target.positive_indices) for target in batch_targets)
+    objectness = (alpha_t * (1 - p_t).pow(FOCAL_GAMMA) * bce).sum() / max(1, positive_count)
     positive_predictions = torch.cat(positives)
     if positive_predictions.shape[0]:
         matched_boxes = torch.cat(boxes)

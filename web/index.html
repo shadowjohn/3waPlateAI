@@ -439,6 +439,12 @@
                 <div class="drop-sub">支援 JPG、PNG、WEBP 格式，立即自動辨識並標繪邊框</div>
             </div>
             <input type="file" id="file-input" style="display: none;" accept="image/*">
+            <div class="form-check form-switch mt-2 small">
+                <input class="form-check-input" type="checkbox" role="switch" id="toggle-candidate-preview">
+                <label class="form-check-label" for="toggle-candidate-preview">
+                    本機 A/B 候選定位預覽（現役模型不會被替換）
+                </label>
+            </div>
 
             <div id="infer-loading" class="text-center py-2 text-primary fw-bold" style="display: none;">
                 <div class="spinner-border spinner-border-sm me-2" role="status"></div>
@@ -468,6 +474,7 @@
                     </div>
                 </div>
             </div>
+            <div id="infer-ab-summary" class="alert alert-info small" style="display: none;" aria-live="polite"></div>
 
             <div class="row g-3">
                 <!-- Left: Visual Canvas Window -->

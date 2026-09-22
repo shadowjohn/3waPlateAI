@@ -71,7 +71,7 @@ def test_evaluation_metrics_score_perfect_duplicate_and_bad_semantic_quads():
     assert metrics["corner_error_640px"] == 40
 
 
-@pytest.mark.parametrize("kwargs", [{"epochs": 0}, {"batch_size": True}, {"learning_rate": float("nan")}, {"seed": -1}, {"device": "cuda"}])
+@pytest.mark.parametrize("kwargs", [{"epochs": 0}, {"batch_size": True}, {"learning_rate": float("nan")}, {"seed": -1}, {"device": "bad"}])
 def test_invalid_config_creates_no_output(tmp_path, kwargs):
     config = DetectorTrainingConfig(tmp_path / "missing", tmp_path / "missing", tmp_path / "run")
     with pytest.raises(DetectionDataError):
@@ -196,3 +196,37 @@ def test_metadata_change_during_training_is_not_published(tmp_path, monkeypatch)
         train_detector(DetectorTrainingConfig(train, validation, tmp_path / "run", epochs=1))
     assert not (tmp_path / "run").exists()
     assert list(tmp_path.glob(".run.partial-*")) == []
+
+
+@pytest.mark.parametrize('device', ['cpu', pytest.param('cuda', marks=pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA unavailable'))])
+def test_real_training_preserves_license_and_device_provenance(tmp_path, device):
+    from tests.unit.test_real_detection_dataset import fixture
+    import hashlib
+    from PIL import Image
+    train = fixture(tmp_path / 'train')
+    val = fixture(tmp_path / 'validation')
+    Image.new('RGB', (800, 400), (90, 120, 150)).save(val / 'images/a.png')
+    row = json.loads((val / 'metadata.jsonl').read_text(encoding='utf-8'))
+    row['image_sha256'] = hashlib.sha256((val / 'images/a.png').read_bytes()).hexdigest()
+    (val / 'metadata.jsonl').write_text(json.dumps(row) + '\n', encoding='utf-8')
+    meta = json.loads((val / 'dataset.json').read_text(encoding='utf-8'))
+    meta['split'] = 'validation'
+    (val / 'dataset.json').write_text(json.dumps(meta), encoding='utf-8')
+    run = train_detector(DetectorTrainingConfig(train, val, tmp_path / 'run', epochs=1, batch_size=1, device=device))
+    assert run.report['data_provenance']['license_reviewed'] is False
+    assert run.report['data_provenance']['local_only'] is True
+    assert run.report['data_provenance']['training_data'] == 'real'
+    assert run.report['config']['device'] == device
+    assert 'production' in run.report['validation_boundary']
+    assert 'synthetic composites only' not in run.report['validation_boundary']
+    assert run.report['validation']['instances'] == 2
+
+
+def test_metrics_accept_zero_and_more_than_three_real_instances():
+    from plateai_trainer.detection.contracts import CompositeInstance
+    corners = np.float32([[10, 10], [40, 10], [40, 30], [10, 30]])
+    truth = CompositeInstance((10, 10, 40, 30), corners, {})
+    metrics = engine._prediction_metrics([np.empty((0, 13)), np.empty((0, 13))], [[], [truth] * 4])
+    assert metrics['instances'] == 4
+    assert metrics['strata']['instance_count']['0'] == 1
+    assert metrics['strata']['instance_count']['4'] == 1

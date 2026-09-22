@@ -31,6 +31,28 @@ privacy, and redistribution conditions with every local copy.
 
 ## Useful, but not OCR-text ground truth
 
+### EZCon Taiwan detection — explicitly approved local-only experiment
+
+- Source: <https://huggingface.co/datasets/EZCon/taiwan-license-plate-detection>
+- Pinned revision: `ab64ba1e86615c8371e1b5617792a130d45028e8`.
+- Official splits: 2,346 train / 671 validation / 336 test; embedded images,
+  class-zero labels and normalized four-point polygons, including multiple plates.
+- No license is declared. On 2026-09-22 the user explicitly approved local
+  experimental training only, with no redistribution of data or resulting weights.
+  This is not a license review or permission for commercial deployment.
+- `tools/fetch_ezcon_detection.py` retrieves fixed-revision parquet, verifies LFS
+  SHA-256 and byte size, and records unresolved rights in every imported split.
+  It does not execute upstream dataset scripts. PyArrow is optional import tooling.
+- Existing recognition-test/user photos take precedence over all imported splits;
+  test precedes validation, which precedes train. Decoded-RGB hashes and pHash
+  Hamming distance <=4 exclude exact/recompressed/near-duplicate photos, without
+  moving examples across official splits. This does not establish independence of
+  every vehicle, recording session or differently cropped scene.
+- The first local import retained 2,000 / 591 / 295 images, excluding 341 duplicate
+  or near-duplicate images and 126 invalid/ambiguous annotations. In particular,
+  the F6S-992 evaluation photo also appeared as upstream training row 1257 and
+  was excluded. Full reasons and held-out hashes are in local `import_report.json`.
+
 ### TLPD — MIT Taiwan detector and rectifier evaluation
 
 - Source: <https://huggingface.co/datasets/evan6007/TLPD>
@@ -40,6 +62,9 @@ privacy, and redistribution conditions with every local copy.
 - The annotations label the polygon as `carplate`; they do not contain the
   displayed plate string. Use it to score M3b detection and M3a four-corner
   rectification, not recognizer exact-match accuracy.
+- A spaced sample of the pinned images contains tight plate crops, not just
+  full-vehicle scenes. Do not treat the dataset name as proof that it supplies
+  full-scene Detector training coverage; inspect image framing before using it.
 - Local integrity check at the pinned revision found 3,032 image files and
   3,032 JSON files, but 1,463 JSON `imagePath` values point at a different
   filename. Do not run its supplied `dataset.py` as-is for a metric: pair

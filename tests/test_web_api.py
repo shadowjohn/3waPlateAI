@@ -131,6 +131,46 @@ def test_predict_fixture_image(web_client: TestClient):
         assert key in tb
 
 
+def test_compare_api_returns_named_active_and_fixed_candidate_without_activation(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    from plateai_web import app as app_module
+
+    calls: list[tuple[str, bytes]] = []
+
+    class StubPredictor:
+        def __init__(self, bundle_name: str):
+            self.bundle_name = bundle_name
+
+        def predict_image(self, image_bytes: bytes) -> dict:
+            calls.append((self.bundle_name, image_bytes))
+            return {
+                "status": "no_plate", "detections": [], "rejections": [], "count": 0,
+                "latency_ms": 1.0,
+                "diagnostics": {"bundle_name": self.bundle_name, "warnings": [],
+                                "timing_breakdown": {}},
+            }
+
+    active = StubPredictor("active-v1")
+    candidate = StubPredictor("candidate-detector-real-v1")
+    monkeypatch.setattr(app_module, "predictor", active)
+    monkeypatch.setattr(app_module, "_candidate_predictor", lambda: candidate)
+    response = web_client.post(
+        "/api/predict/compare", files={"file": ("plate.png", b"image-payload", "image/png")}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["active"]["diagnostics"]["bundle_name"] == "active-v1"
+    assert data["candidate"]["diagnostics"]["bundle_name"] == "candidate-detector-real-v1"
+    assert data["preview"] == {
+        "active_bundle": "active-v1", "candidate_bundle": "candidate-detector-real-v1",
+        "activation_changed": False,
+    }
+    assert calls == [("active-v1", b"image-payload"), ("candidate-detector-real-v1", b"image-payload")]
+    assert not (tmp_path / "models" / "bundles" / "active-v1").exists()
+
+
 def test_predict_plate_reader_contract_alignment(monkeypatch: pytest.MonkeyPatch):
     import numpy as np
     from plateai_web.predictor import predictor

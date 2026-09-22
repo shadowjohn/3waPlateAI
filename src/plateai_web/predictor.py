@@ -49,11 +49,22 @@ class PredictorEngine:
     of correctness. Passing it does not establish real-world model accuracy.
     """
 
-    def __init__(self, root: Path | None = None, *, minimum_recognition_score: float = 0.65):
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        minimum_recognition_score: float = 0.65,
+        bundle_name: str = 'active-v1',
+        preview_only: bool = False,
+    ):
         if not 0 <= minimum_recognition_score <= 1:
             raise ValueError('minimum_recognition_score must be in [0,1]')
+        if not isinstance(bundle_name, str) or Path(bundle_name).name != bundle_name:
+            raise ValueError('bundle_name must be a single directory name')
         self.root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
         self.minimum_recognition_score = minimum_recognition_score
+        self.bundle_name = bundle_name
+        self.preview_only = preview_only
         self._lock = threading.RLock()
         self._bundle_stamp = None
         self.reader = self.recognizer_session = self.codec = self.ruleset = None
@@ -67,12 +78,15 @@ class PredictorEngine:
         return tuple((p.relative_to(bundle).as_posix(), p.stat().st_mtime_ns, p.stat().st_size)
                      for p in sorted(bundle.rglob('*')) if p.is_file())
 
+    def _bundle_path(self) -> Path:
+        return self.root / 'models' / 'bundles' / self.bundle_name
+
     def _load_active_model(self):
         with self._lock:
             if not HAS_ENGINE:
                 self.load_error = ENGINE_IMPORT_ERROR
                 return
-            bundle = self.root / 'models/bundles/active-v1'
+            bundle = self._bundle_path()
             try:
                 stamp = self._stamp(bundle)
                 if stamp == self._bundle_stamp:
@@ -107,6 +121,14 @@ class PredictorEngine:
 
     def _read_model_warnings(self, bundle: Path):
         provenance = self.manifest_data.get('provenance', {})
+        if self.preview_only:
+            self.model_warnings.append(
+                '本機 A/B 候選：僅供定位對照，未啟用為現役模型；不得視為正式辨識結果。'
+            )
+            if provenance.get('license_reviewed') is not True:
+                self.model_warnings.append(
+                    '候選 Detector 使用未完成授權審核的本機實驗資料；資料與權重不可散布。'
+                )
         if provenance.get('training_data') == 'synthetic':
             self.model_warnings.append('此模型以合成資料訓練，合成驗證分數不代表實拍辨識率。')
         report = provenance.get('detector_training_report')
@@ -153,7 +175,7 @@ class PredictorEngine:
         loading_ms = (time.perf_counter() - loading_started) * 1000
         full = self.reader is not None
         diag = {
-            'bundle_name': 'active-v1', 'model_id': self.manifest_data.get('model_id'),
+            'bundle_name': self.bundle_name, 'model_id': self.manifest_data.get('model_id'),
             'capabilities': self.manifest_data.get('capabilities', []),
             'pipeline_mode': 'neural_full_pipeline' if full else 'hybrid_heuristic',
             'locator_type': 'plate_pose_net' if full else 'opencv_contour_v1',
