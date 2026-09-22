@@ -189,7 +189,7 @@ $(function () {
                     $body.scrollTop($body[0].scrollHeight);
                 }
 
-                // Real-time YOLO-style training metrics and curve update
+                // Legacy task payloads may also carry training metrics.
                 if (task.result && task.result.history && task.result.history.length > 0) {
                     updateTrainChartAndStats(task.result.history, task.result.current_metrics);
                 }
@@ -332,7 +332,7 @@ $(function () {
         });
     }
 
-    // YOLO Style Training Metrics Chart
+    // PyTorch CTC Training Metrics Chart
     let trainChart = null;
     function initTrainChart() {
         const dom = document.getElementById("chart-train-metrics");
@@ -342,7 +342,7 @@ $(function () {
         }
         const option = {
             title: {
-                text: "YOLO 指標收斂曲線 (Loss vs. Accuracy)",
+                text: "PyTorch CTC 指標收斂曲線 (Loss vs. Accuracy)",
                 subtext: "即時追蹤 PyTorch CTC 訓練損失與驗證精準度",
                 left: "center",
                 textStyle: { fontSize: 13, fontWeight: "bold", color: "#1e293b" },
@@ -437,35 +437,31 @@ $(function () {
         if (!trainChart) {
             initTrainChart();
         }
-        if (!history || history.length === 0) return;
-
-        const epochs = history.map(h => `Epoch ${h.epoch}`);
-        const trainLosses = history.map(h => h.train_loss);
-        const valLosses = history.map(h => h.val_loss);
-        const valAccs = history.map(h => h.val_acc);
-
-        trainChart.setOption({
-            xAxis: { data: epochs },
-            series: [
-                { name: "訓練損失 (Train Loss)", data: trainLosses },
-                { name: "驗證損失 (Val Loss)", data: valLosses },
-                { name: "驗證準確率 (Val Acc %)", data: valAccs }
-            ]
-        });
-
-        // Update Stat Cards
-        const last = currentMetrics || history[history.length - 1];
-        if (last) {
+        const completedHistory = Array.isArray(history) ? history : [];
+        const last = currentMetrics || completedHistory[completedHistory.length - 1];
+        if (!last) {
+            $("#train-stat-loss, #train-stat-vloss, #train-stat-acc").text("尚未驗證");
+        } else {
             const tot = last.total_epochs || $("#train-epochs").val() || 5;
             $("#train-stat-epoch").text(`${last.epoch} / ${tot}`);
-            $("#train-stat-loss").text(last.train_loss !== undefined ? Number(last.train_loss).toFixed(4) : "--");
-            $("#train-stat-vloss").text(last.val_loss !== undefined ? Number(last.val_loss).toFixed(4) : "--");
-            $("#train-stat-acc").text(last.val_acc !== undefined ? `${Number(last.val_acc).toFixed(1)}%` : "--%");
+            $("#train-stat-loss").text(last.train_loss == null ? "尚未驗證" : Number(last.train_loss).toFixed(4));
+            $("#train-stat-vloss").text(last.val_loss == null ? "尚未驗證" : Number(last.val_loss).toFixed(4));
+            $("#train-stat-acc").text(last.val_acc == null ? "尚未驗證" : `${Number(last.val_acc).toFixed(1)}%`);
             $("#train-chart-status")
                 .removeClass("bg-secondary-subtle text-secondary bg-warning-subtle text-warning")
                 .addClass("bg-success-subtle text-success")
                 .text(`即時收斂中 (回合 ${last.epoch}/${tot} | 準確率 ${last.val_acc}%)`);
         }
+        if (completedHistory.length === 0) return;
+
+        trainChart.setOption({
+            xAxis: { data: completedHistory.map(h => `Epoch ${h.epoch}`) },
+            series: [
+                { name: "訓練損失 (Train Loss)", data: completedHistory.map(h => h.train_loss) },
+                { name: "驗證損失 (Val Loss)", data: completedHistory.map(h => h.val_loss) },
+                { name: "驗證準確率 (Val Acc %)", data: completedHistory.map(h => h.val_acc) }
+            ]
+        });
     }
 
     // GPU VRAM (GRAM) Real-time Monitor
@@ -610,88 +606,180 @@ $(function () {
         });
     }
 
-    // Check if there is an active training job running in another tab / process
-    function checkActiveTraining() {
+    // Training uses its own timer so other task panels cannot stop its recovery loop.
+    let trainTaskId = null;
+    let trainPollTimer = null;
+    let trainPollInFlight = false;
+    let trainRetryDelay = 1000;
+    let trainStartedHere = false;
+
+    function stopTrainPolling() {
+        if (trainPollTimer) clearTimeout(trainPollTimer);
+        trainPollTimer = null;
+        trainPollInFlight = false;
+    }
+
+    function scheduleTrainPoll(delay) {
+        if (trainPollTimer) clearTimeout(trainPollTimer);
+        trainPollTimer = setTimeout(function () { pollTrainingTask(trainTaskId); }, delay);
+    }
+
+    function setTrainingStatus(task) {
+        const terminal = ["completed", "failed", "cancelled"].includes(task.status);
+        const $start = $("#btn-start-train");
+        const $stop = $("#btn-stop-train");
+        $start.prop("disabled", !terminal).toggleClass("disabled", !terminal);
+        $stop.prop("disabled", terminal || task.cancel_requested);
+        if (!terminal) $start.text("🏎️ 訓練進行中...");
+        else if (task.status === "completed") $start.text("🏎️ 開始模型訓練");
+        else $start.text("🏎️ 重新開始訓練");
+    }
+
+    function renderTrainingTask(task, notifyCompletion) {
+        const terminal = ["completed", "failed", "cancelled"].includes(task.status);
+        const $progress = $("#prog-train");
+        const $body = $("#term-train .terminal-body");
+        const $status = $("#status-box-train");
+        const result = task.result || {};
+        const metrics = result.current_metrics || null;
+        const history = Array.isArray(result.history) ? result.history : [];
+
+        setTrainingStatus(task);
+        $progress.css("width", `${task.progress || 0}%`).attr("aria-valuenow", task.progress || 0).text(`${task.progress || 0}%`);
+        if (Array.isArray(task.logs)) {
+            $body.empty();
+            task.logs.forEach(function (line) { $body.append($("<div>").text(line)); });
+            if ($body[0]) $body.scrollTop($body[0].scrollHeight);
+        }
+        updateTrainChartAndStats(history, metrics);
+
+        if (!terminal) {
+            const batchText = result.current_batch && result.total_batches
+                ? `batch ${result.current_batch}/${result.total_batches}`
+                : (task.last_progress_at ? "進度已持續回報" : "等待 worker 接手");
+            $("#train-chart-status").removeClass("bg-secondary-subtle text-secondary bg-success text-white").addClass("bg-success-subtle text-success").text(`${task.message || "訓練進行中"}（${batchText}）`);
+            return;
+        }
+
+        $status.empty().show();
+        if (task.status === "completed") {
+            $progress.removeClass("progress-bar-animated bg-danger bg-warning").addClass("bg-success").text("100% OK");
+            $("#train-chart-status").removeClass("bg-warning-subtle text-warning bg-success-subtle text-success").addClass("bg-success text-white").text("已匯出，尚未啟用");
+            $status.append($("<div>").addClass("alert alert-success py-2 px-3 mb-0").text("訓練與 ONNX 匯出完成；模型尚未自動啟用。"));
+            if (result.bundle_dir) $status.append($("<div>").addClass("small text-success-emphasis mt-1").text(`Bundle: ${result.bundle_dir}`));
+            if (notifyCompletion) showToast("訓練完成", "已匯出，尚未啟用", true);
+        } else if (task.status === "cancelled") {
+            $progress.removeClass("progress-bar-animated bg-primary bg-danger").addClass("bg-warning text-dark").text("已停止");
+            $("#train-chart-status").removeClass("bg-success-subtle text-success").addClass("bg-secondary-subtle text-secondary").text("已停止；已發布產物保留");
+            $status.append($("<div>").addClass("alert alert-warning py-2 px-3 mb-0").text(task.message || "已停止；已發布產物保留。"));
+        } else {
+            $progress.removeClass("progress-bar-animated").addClass("bg-danger");
+            $("#train-chart-status").removeClass("bg-success-subtle text-success").addClass("bg-warning-subtle text-warning").text("訓練失敗，請查看 Detail");
+            $status.append($("<div>").addClass("alert alert-danger py-2 px-3 mb-0").text(task.error || task.message || "訓練失敗，請查看 Detail。"));
+        }
+    }
+
+    function recoverMissingTrainingTask() {
         $.getJSON("/api/train/active", function (res) {
             if (res.active && res.task) {
-                const t = res.task;
-                $("#btn-start-train").prop("disabled", true).addClass("disabled").html("🏎️ 訓練進行中...");
-                $("#btn-stop-train").prop("disabled", false);
-                $("#train-chart-status").removeClass("bg-secondary-subtle text-secondary bg-success text-white").addClass("bg-success-subtle text-success").text("訓練進行中 (多視窗同步)");
-
-                if (t.result && t.result.history) {
-                    updateTrainChartAndStats(t.result.history, t.result.current_metrics);
-                }
-
-                if (!pollInterval || currentPollingTaskId !== t.id) {
-                    pollTask(t.id, "#term-train", "#prog-train", "#status-box-train", "#btn-start-train");
-                }
-            } else if (!res.active && res.task) {
-                if (res.task.result && res.task.result.history) {
-                    updateTrainChartAndStats(res.task.result.history, res.task.result.current_metrics);
-                }
+                trainTaskId = res.task.id;
+                renderTrainingTask(res.task, false);
+                scheduleTrainPoll(0);
+            } else {
+                $("#train-chart-status").text("找不到先前任務，請確認目前訓練狀態。");
+                $("#btn-start-train").prop("disabled", false).removeClass("disabled");
             }
+        });
+    }
+
+    function pollTrainingTask(taskId) {
+        if (!taskId || taskId !== trainTaskId || trainPollInFlight) return;
+        trainPollInFlight = true;
+        $.ajax({ url: `/api/tasks/${encodeURIComponent(taskId)}`, dataType: "json" })
+            .done(function (task) {
+                if (taskId !== trainTaskId) return;
+                trainRetryDelay = 1000;
+                const terminal = ["completed", "failed", "cancelled"].includes(task.status);
+                renderTrainingTask(task, terminal && trainStartedHere);
+                if (terminal) {
+                    stopTrainPolling();
+                    trainStartedHere = false;
+                } else {
+                    scheduleTrainPoll(1000);
+                }
+            })
+            .fail(function (xhr) {
+                if (taskId !== trainTaskId) return;
+                if (xhr.status === 404) {
+                    stopTrainPolling();
+                    recoverMissingTrainingTask();
+                    return;
+                }
+                $("#train-chart-status")
+                    .removeClass("bg-success-subtle text-success bg-success text-white")
+                    .addClass("bg-warning-subtle text-warning")
+                    .text(`連線中斷，${Math.ceil(trainRetryDelay / 1000)} 秒後重試...`);
+                scheduleTrainPoll(trainRetryDelay);
+                trainRetryDelay = Math.min(trainRetryDelay * 2, 10000);
+            })
+            .always(function () { trainPollInFlight = false; });
+    }
+
+    function startTrainingPolling(taskId, startedHere) {
+        if (trainTaskId !== taskId) stopTrainPolling();
+        trainTaskId = taskId;
+        trainStartedHere = Boolean(startedHere);
+        scheduleTrainPoll(0);
+    }
+
+    // Check if an independently running training task exists after a page reload.
+    function checkActiveTraining() {
+        $.getJSON("/api/train/active", function (res) {
+            if (!res.task) {
+                $("#btn-start-train").prop("disabled", false).removeClass("disabled");
+                $("#btn-stop-train").prop("disabled", true);
+                return;
+            }
+            renderTrainingTask(res.task, false);
+            if (res.active) startTrainingPolling(res.task.id, false);
         });
     }
 
     // 4. Train Model
     $("#btn-start-train").on("click", function () {
-        const epochs = parseInt($("#train-epochs").val()) || 5;
+        const epochs = parseInt($("#train-epochs").val(), 10) || 5;
         const trainDataset = $("#train-dataset-select").val() || null;
-
-        // Reset display
+        $("#btn-start-train").prop("disabled", true).addClass("disabled");
         $("#train-stat-epoch").text(`0 / ${epochs}`);
-        $("#train-stat-loss").text("--");
-        $("#train-stat-vloss").text("--");
-        $("#train-stat-acc").text("--%");
-        $("#train-chart-status")
-            .removeClass("bg-secondary-subtle text-secondary bg-success-subtle text-success bg-success text-white")
-            .addClass("bg-warning-subtle text-warning")
-            .text("正在準備大樣本與 PyTorch 訓練引擎...");
+        $("#train-stat-loss, #train-stat-vloss, #train-stat-acc").text("尚未驗證");
+        $("#train-chart-status").removeClass("bg-success text-white").addClass("bg-warning-subtle text-warning").text("正在建立背景訓練任務...");
         initTrainChart();
         initGramChart();
 
-        setMascotLine(`大樣本訓練出發！目標 ${epochs} 個 Epoch，老司機緊握方向盤！🏎️💨`);
-        runTask(
-            "/api/train/start",
-            { epochs: epochs, train_dataset: trainDataset },
-            "#term-train",
-            "#prog-train",
-            "#status-box-train",
-            "#btn-start-train",
-            function (result) {
-                if (result && result.history) {
-                    updateTrainChartAndStats(result.history, null);
-                }
-                $("#train-chart-status")
-                    .removeClass("bg-warning-subtle text-warning bg-success-subtle text-success")
-                    .addClass("bg-success text-white")
-                    .text("訓練與 ONNX 導出完成！");
-            }
-        );
+        $.ajax({
+            url: "/api/train/start",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ epochs: epochs, train_dataset: trainDataset })
+        }).done(function (res) {
+            startTrainingPolling(res.task_id, true);
+        }).fail(function (xhr) {
+            $("#btn-start-train").prop("disabled", false).removeClass("disabled");
+            const message = (xhr.responseJSON && xhr.responseJSON.detail) || "無法建立背景訓練任務";
+            $("#status-box-train").empty().show().append($("<div>").addClass("alert alert-danger py-2 px-3 mb-0").text(message));
+            if (xhr.status === 409) checkActiveTraining();
+        });
     });
 
-    // 4b. Stop / Interrupt Training (can be clicked anytime, even when already stopped)
+    // Stop only asks the persisted worker to stop; polling continues until it confirms a terminal state.
     $("#btn-stop-train").on("click", function () {
-        setMascotLine("煞車踩到底！正在請求訓練引擎安全中斷...🛑");
-        $.post("/api/train/stop", function (res) {
-            showToast("訓練中斷", "已送出中斷請求，訓練引擎已安全停止！", false);
-            setMascotLine("老司機已緊急煞車！訓練已中斷，狀態已安全歸位～🛑");
-            $("#btn-start-train").prop("disabled", false).removeClass("disabled btn-secondary btn-success").addClass("btn-danger").html("🏎️ 重新開始訓練");
-            $("#btn-stop-train").prop("disabled", false);
-            $("#train-chart-status").removeClass("bg-success-subtle text-success bg-warning-subtle text-warning").addClass("bg-secondary-subtle text-secondary").text("已手動中斷 (可隨時再啟動)");
-            if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-                currentPollingTaskId = null;
-            }
-            $("#prog-train").removeClass("progress-bar-animated bg-primary bg-danger").addClass("bg-warning text-dark").text("已手動中斷");
-            $("#term-train .terminal-body").append("<div class='text-warning fw-bold mt-2'>[INFO] 使用者手動中斷訓練作業。</div>");
-            const $body = $("#term-train .terminal-body");
-            $body.scrollTop($body[0].scrollHeight);
+        $("#btn-stop-train").prop("disabled", true);
+        $.post("/api/train/stop").done(function (res) {
+            $("#train-chart-status").text(res.message || "停止中，等待訓練在安全邊界結束...");
+            if (res.task_id) startTrainingPolling(res.task_id, false);
         }).fail(function () {
-            showToast("中斷操作", "已執行清理狀態程序", true);
-            $("#btn-start-train").prop("disabled", false).removeClass("disabled").html("🏎️ 重新開始訓練");
+            $("#btn-stop-train").prop("disabled", false);
+            $("#status-box-train").empty().show().append($("<div>").addClass("alert alert-danger py-2 px-3 mb-0").text("停止要求未確認，訓練可能仍在執行。"));
         });
     });
 

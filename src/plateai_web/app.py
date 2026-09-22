@@ -4,12 +4,14 @@ from __future__ import annotations
 import base64
 import os
 import shutil
+import sqlite3
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +23,9 @@ from .generator import generate_dataset_task
 from .predictor import predictor
 from .release_packager import build_release_task
 from .tasks import TaskStatus, task_manager
-from .trainer import find_available_datasets, train_model_task
+from .trainer import find_available_datasets, validate_training_request
+from .training_process import launch_training_worker, reconcile_training_tasks
+from .training_store import TrainingStore
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 WEB_DIR = ROOT / "web"
@@ -35,6 +39,74 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def get_training_store() -> TrainingStore:
+    """Return a lazy training-store dependency without creating its database."""
+
+    return TrainingStore(ROOT / "runs" / ".web-training")
+
+
+def _memory_task_document(task: Any) -> dict[str, Any]:
+    return {
+        "id": task.id,
+        "name": task.name,
+        "status": task.status.value,
+        "phase": None,
+        "progress": task.progress,
+        "message": task.message,
+        "logs": task.logs[-100:],
+        "log_count": len(task.logs),
+        "result": task.result,
+        "error": task.error,
+        "cancel_requested": task.status == TaskStatus.CANCELLED,
+        "heartbeat_at": None,
+        "last_progress_at": None,
+        "health": "memory-only",
+        "updated_at": task.updated_at,
+    }
+
+
+def _training_health(task: dict[str, Any]) -> str:
+    if task["status"] != "running":
+        return "terminal" if task["status"] in {"completed", "failed", "cancelled"} else "pending"
+    heartbeat = task["heartbeat_at"]
+    if heartbeat is None:
+        return "starting"
+    return "stale" if time.time() - float(heartbeat) > 15 else "healthy"
+
+
+def _training_task_document(store: TrainingStore, task: dict[str, Any]) -> dict[str, Any]:
+    logs, log_count = store.read_logs(task["id"], limit=100)
+    return {
+        "id": task["id"],
+        "name": task["name"],
+        "status": task["status"],
+        "phase": task["phase"],
+        "progress": task["progress"],
+        "message": task["message"],
+        "logs": logs,
+        "log_count": log_count,
+        "result": task["result"],
+        "error": task["error"],
+        "cancel_requested": task["cancel_requested"],
+        "heartbeat_at": task["heartbeat_at"],
+        "last_progress_at": task["last_progress_at"],
+        "health": _training_health(task),
+        "updated_at": task["updated_at"],
+    }
+
+
+def _storage_unavailable(exc: BaseException) -> HTTPException:
+    return HTTPException(status_code=503, detail=f"訓練狀態儲存暫時無法使用: {exc}")
+
+
+def _new_training_task_id(store: TrainingStore) -> str:
+    for _ in range(100):
+        task_id = uuid.uuid4().hex[:12]
+        if task_manager.get_task(task_id) is None and store.get(task_id) is None:
+            return task_id
+    raise RuntimeError("could not allocate a unique training task id")
 
 
 @app.get("/api/status")
@@ -194,53 +266,100 @@ def get_train_datasets():
 
 
 @app.get("/api/train/active")
-def get_active_train():
-    active_task = task_manager.get_active_training_task()
-    if active_task:
-        return {"active": True, "task": active_task}
-    # Return most recent training task if exists
-    for t in task_manager.list_tasks():
-        if "訓練" in t.name or "train" in t.name.lower():
-            return {"active": False, "task": t}
-    return {"active": False, "task": None}
+def get_active_train(store: TrainingStore = Depends(get_training_store)):
+    try:
+        active = store.active()
+        task = active[0] if active else store.latest()
+    except (OSError, sqlite3.Error) as exc:
+        raise _storage_unavailable(exc) from exc
+    return {"active": bool(active), "task": _training_task_document(store, task) if task else None}
 
 
 @app.post("/api/train/stop")
-def stop_training():
-    cancelled = task_manager.cancel_task()
-    return {"status": "ok", "cancelled": cancelled, "message": "訓練已成功中斷"}
+def stop_training(store: TrainingStore = Depends(get_training_store)):
+    try:
+        active = store.active()
+        if not active:
+            return {
+                "status": "ok",
+                "task_id": None,
+                "cancel_requested": False,
+                "cancelled": False,
+                "message": "沒有進行中的背景訓練",
+            }
+        task = active[0]
+        requested = store.request_cancel(task["id"])
+        refreshed = store.get(task["id"])
+    except (OSError, sqlite3.Error) as exc:
+        raise _storage_unavailable(exc) from exc
+    return {
+        "status": "ok",
+        "task_id": task["id"],
+        "cancel_requested": bool(refreshed and refreshed["cancel_requested"]),
+        "cancelled": bool(refreshed and refreshed["status"] == "cancelled"),
+        "message": "已送出停止要求，等待訓練在安全邊界停止" if requested else "停止要求未被接受",
+    }
 
 
 class TrainRequest(BaseModel):
     epochs: int = 5
-    run_name: str = ""
+    run_name: str | None = None
     train_dataset: str | None = None
+    validation_dataset: str | None = None
+    batch_size: int | None = None
+    device: str | None = None
 
 
 @app.post("/api/train/start")
-def start_training(req: TrainRequest):
-    # Concurrency guard: Only one train job at a time
-    active_task = task_manager.get_active_training_task()
-    if active_task:
+def start_training(req: TrainRequest, store: TrainingStore = Depends(get_training_store)):
+    try:
+        reconcile_training_tasks(store)
+        active = store.active()
+        task_id = _new_training_task_id(store)
+    except (OSError, sqlite3.Error) as exc:
+        raise _storage_unavailable(exc) from exc
+    if active:
         return JSONResponse(
             status_code=409,
             content={
                 "status": "busy",
-                "task_id": active_task.id,
-                "message": f"已有模型訓練任務正在進行中 (Task ID: {active_task.id})，不可同時進行多筆訓練！",
+                "task_id": active[0]["id"],
+                "message": "已有背景模型訓練任務正在進行中",
+            },
+        )
+    memory_task = task_manager.get_active_training_task()
+    if memory_task:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "busy",
+                "task_id": memory_task.id,
+                "message": "已有既有模型訓練任務正在進行中",
             },
         )
 
-    def runner(task_id, tm):
-        train_model_task(
-            task_id,
-            tm,
-            epochs=req.epochs,
-            train_dir=req.train_dataset,
-            run_name=req.run_name,
-        )
-
-    task_id = task_manager.run_in_background(f"模型訓練 ({req.epochs} Epochs)", runner)
+    request = req.model_dump(exclude_none=True)
+    try:
+        validate_training_request(ROOT, task_id, request)
+    except (FileExistsError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        store.create(task_id, f"模型訓練 ({req.epochs} Epochs)", request)
+    except (OSError, sqlite3.Error) as exc:
+        raise _storage_unavailable(exc) from exc
+    try:
+        launch_training_worker(ROOT, task_id)
+    except BaseException as exc:
+        try:
+            store.finish(
+                task_id,
+                "failed",
+                message="背景訓練程序無法啟動",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        except (OSError, sqlite3.Error):
+            pass
+        raise HTTPException(status_code=503, detail="背景訓練程序無法啟動") from exc
     return {"status": "started", "task_id": task_id}
 
 
@@ -272,22 +391,20 @@ def start_release_build():
 
 
 @app.get("/api/tasks/{task_id}")
-def get_task_info(task_id: str):
+def get_task_info(task_id: str, store: TrainingStore = Depends(get_training_store)):
     task = task_manager.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {
-        "id": task.id,
-        "name": task.name,
-        "status": task.status.value,
-        "progress": task.progress,
-        "message": task.message,
-        "logs": task.logs[-100:],  # Return recent logs for polling
-        "log_count": len(task.logs),
-        "result": task.result,
-        "error": task.error,
-        "updated_at": task.updated_at,
-    }
+    if task:
+        return _memory_task_document(task)
+    try:
+        try:
+            training_task = store.get(task_id)
+        except ValueError:
+            training_task = None
+        if training_task:
+            return _training_task_document(store, training_task)
+    except (OSError, sqlite3.Error) as exc:
+        raise _storage_unavailable(exc) from exc
+    raise HTTPException(status_code=404, detail="Task not found")
 
 
 class PredictBase64Request(BaseModel):

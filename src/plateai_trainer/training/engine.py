@@ -9,7 +9,7 @@ import random
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -28,6 +28,7 @@ from plateai_trainer.synthetic.cli import _default_config_path
 
 from .dataset import M1CropDataset, TrainingDataError, collate_crop_samples
 from .model import PlateCTCNet
+from .control import TrainingProgress
 
 
 _TIME_STEPS = 80
@@ -149,7 +150,13 @@ def _target_text(codec: CTCCodec, target: list[int]) -> str:
 
 
 def evaluate_recognizer(
-    model: PlateCTCNet, loader: DataLoader, codec: CTCCodec, device: torch.device
+    model: PlateCTCNet,
+    loader: DataLoader,
+    codec: CTCCodec,
+    device: torch.device,
+    *,
+    on_batch: Callable[[int, int], None] | None = None,
+    check_cancelled: Callable[[], None] | None = None,
 ) -> EvaluationReport:
     """Evaluate greedy CTC decoding without allowing malformed inputs through."""
 
@@ -157,9 +164,16 @@ def evaluate_recognizer(
     samples = exact = matching_characters = character_total = rejected = 0
     val_losses = []
     with torch.no_grad():
-        for batch in loader:
+        total_batches = len(loader)
+        for batch_index, batch in enumerate(loader, 1):
+            if check_cancelled is not None:
+                check_cancelled()
             if any(required > _TIME_STEPS for required in batch.required_timesteps):
                 rejected += len(batch.required_timesteps)
+                if on_batch is not None:
+                    on_batch(batch_index, total_batches)
+                if check_cancelled is not None:
+                    check_cancelled()
                 continue
             batch_loss = _ctc_loss(model, batch, device)
             val_losses.append(float(batch_loss.detach().cpu()))
@@ -176,6 +190,10 @@ def evaluate_recognizer(
                     for actual_char, expected_char in zip(actual, expected)
                 )
                 character_total += len(expected)
+            if on_batch is not None:
+                on_batch(batch_index, total_batches)
+            if check_cancelled is not None:
+                check_cancelled()
     mean_val_loss = sum(val_losses) / len(val_losses) if val_losses else 0.0
     return EvaluationReport(
         samples=samples,
@@ -241,9 +259,24 @@ def _validate_config(config: TrainingConfig) -> torch.device:
     return resolve_training_device(config.device)
 
 
-def train_recognizer(config: TrainingConfig) -> TrainingRun:
+def train_recognizer(
+    config: TrainingConfig,
+    *,
+    on_progress: Callable[[TrainingProgress], None] | None = None,
+    check_cancelled: Callable[[], None] | None = None,
+) -> TrainingRun:
     """Train and publish a local v1 recognition run without replacing output."""
 
+    def emit(progress: TrainingProgress) -> None:
+        if on_progress is not None:
+            on_progress(progress)
+
+    def check() -> None:
+        if check_cancelled is not None:
+            check_cancelled()
+
+    check()
+    emit(TrainingProgress(kind="stage", phase="preparing", total_epochs=config.epochs))
     device = _validate_config(config)
     if device.type == "cuda":
         try:
@@ -266,6 +299,7 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
     )
     if train_dataset.seed == validation_dataset.seed:
         raise TrainingDataError("train and validation generation seeds must differ")
+    check()
 
     _seed_everything(config.seed)
     generator = torch.Generator().manual_seed(config.seed)
@@ -288,6 +322,7 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
     codec = CTCCodec.from_charset(charset)
     model = PlateCTCNet(class_count=codec.class_count).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+    check()
 
     config.output_directory.parent.mkdir(parents=True, exist_ok=True)
     if config.output_directory.exists():
@@ -302,20 +337,87 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
         train_loss = 0.0
         history: list[dict[str, Any]] = []
         for epoch in range(1, config.epochs + 1):
-            losses = [train_one_batch(model, batch, optimizer).loss for batch in train_loader]
+            emit(
+                TrainingProgress(
+                    kind="stage",
+                    phase="training",
+                    epoch=epoch,
+                    total_epochs=config.epochs,
+                )
+            )
+            losses: list[float] = []
+            total_train_batches = len(train_loader)
+            for batch_index, batch in enumerate(train_loader, 1):
+                check()
+                losses.append(train_one_batch(model, batch, optimizer).loss)
+                emit(
+                    TrainingProgress(
+                        kind="batch",
+                        phase="training",
+                        epoch=epoch,
+                        total_epochs=config.epochs,
+                        batch=batch_index,
+                        total_batches=total_train_batches,
+                        train_loss=sum(losses) / len(losses),
+                    )
+                )
+                check()
             train_loss = sum(losses) / len(losses)
-            validation = evaluate_recognizer(model, validation_loader, codec, device)
+            emit(
+                TrainingProgress(
+                    kind="stage",
+                    phase="validating",
+                    epoch=epoch,
+                    total_epochs=config.epochs,
+                    train_loss=train_loss,
+                )
+            )
+
+            def on_validation_batch(batch_index: int, total_batches: int) -> None:
+                emit(
+                    TrainingProgress(
+                        kind="batch",
+                        phase="validating",
+                        epoch=epoch,
+                        total_epochs=config.epochs,
+                        batch=batch_index,
+                        total_batches=total_batches,
+                        train_loss=train_loss,
+                    )
+                )
+
+            validation = evaluate_recognizer(
+                model,
+                validation_loader,
+                codec,
+                device,
+                on_batch=on_validation_batch,
+                check_cancelled=check,
+            )
             print(
                 f"Epoch {epoch}/{config.epochs} - train_loss: {train_loss:.4f} "
-                f"- val_loss: {validation.loss:.4f} - val_acc: {validation.exact_plate_accuracy:.4f}"
+                f"- val_loss: {validation.loss:.4f} - val_acc: {validation.exact_plate_accuracy:.4f}",
+                flush=True,
             )
-            history.append({
+            epoch_record = {
                 "epoch": epoch,
                 "train_loss": round(train_loss, 4),
                 "val_loss": round(validation.loss, 4),
                 "val_acc": round(validation.exact_plate_accuracy, 4),
                 "char_acc": round(validation.character_accuracy, 4),
-            })
+            }
+            history.append(epoch_record)
+            emit(
+                TrainingProgress(
+                    kind="epoch",
+                    phase="validating",
+                    epoch=epoch,
+                    total_epochs=config.epochs,
+                    train_loss=epoch_record["train_loss"],
+                    val_loss=epoch_record["val_loss"],
+                    val_acc=epoch_record["val_acc"],
+                )
+            )
             if validation.exact_plate_accuracy > best_accuracy:
                 best_accuracy = validation.exact_plate_accuracy
                 _atomic_save_checkpoint(
@@ -355,7 +457,9 @@ def train_recognizer(config: TrainingConfig) -> TrainingRun:
                 "device": str(device),
             },
         }
+        check()
         _atomic_write_json(staging / "report.json", report)
+        check()
         publish_directory_no_replace(staging, config.output_directory)
         return TrainingRun(
             output_directory=config.output_directory,

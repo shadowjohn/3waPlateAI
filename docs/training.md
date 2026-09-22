@@ -36,6 +36,14 @@ The exact input is `[batch, 1, 64, 160]`: Pillow 12.3.0 `RGB.convert("L")`, bili
 
 Export runs ONNX checker plus batch-one and batch-two native-versus-ONNX parity (logits and greedy CTC text) before it atomically publishes a hash-verified local bundle. Datasets, checkpoints, ONNX files, runs, and bundles are local, ignored, and not committed. Synthetic metrics are not field accuracy.
 
+## Web Studio background training
+
+Web Studio is intended for occasional local retraining, not a queue or scheduler. Start it with `run_server.bat`; use `run_server.bat --dev-reload` only while developing the Web UI. Closing the Web server does not stop an already accepted training task. Use the training page's stop button and wait for the task to become `cancelled` before assuming that work has stopped.
+
+The task record is an autocommit SQLite database at `runs\.web-training\tasks.sqlite3`; detached worker output is appended to `runs\.web-training\logs\<task-id>.log`. The browser can reconnect after a Web restart by querying that task ID. A computer reboot does not resume training: a task whose worker is conclusively gone is reported as failed on the next Web reconciliation.
+
+The worker reports preparation, training batches, validation batches, epochs, and export. A stop request only sets `cancel_requested`; the worker acknowledges it at a safe boundary and then records `cancelled`. A completed run stays at `runs\<run-name>`, and the resulting bundle is a new `models\bundles\train-<task-id>` directory. Neither path automatically changes `models\bundles\active-v1`; inspect the report and bundle first, then make any model-activation decision manually under your deployment procedure.
+
 ## Local M3b detector workflow
 
 Use only a legal, user-provided background manifest whose images you are authorized to process. From an installed training environment, use separate local train and validation manifests/background sets, choose output paths that do not already exist, and run this end-to-end local-only sequence:

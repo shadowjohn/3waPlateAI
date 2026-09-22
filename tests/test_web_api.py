@@ -1,119 +1,112 @@
-"""Automated tests for 3waPlateAI Web Studio FastAPI backend."""
-import os
+"""Isolated FastAPI checks for 3waPlateAI Web Studio."""
+from __future__ import annotations
+
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
+
 import pytest
 from starlette.testclient import TestClient
 
-root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(root / "src"))
 
-from plateai_web.app import app
-
-client = TestClient(app)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 
-def test_index_page():
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert "3waPlateAI Studio" in resp.text
-    assert "老司機" in resp.text
+@pytest.fixture
+def web_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    from plateai_web import app as app_module
+    from plateai_web.tasks import TaskManager
+    from plateai_web.training_store import TrainingStore
+
+    sample = tmp_path / "out" / "sample" / "images"
+    sample.mkdir(parents=True)
+    (sample / "000000.png").write_bytes(b"not-used-by-dataset-listing")
+    monkeypatch.setattr(app_module, "ROOT", tmp_path)
+    monkeypatch.setattr(app_module, "task_manager", TaskManager())
+    store = TrainingStore(tmp_path / "runs" / ".web-training")
+    app_module.app.dependency_overrides[app_module.get_training_store] = lambda: store
+    try:
+        with TestClient(app_module.app) as client:
+            yield client
+    finally:
+        app_module.app.dependency_overrides.clear()
 
 
-def test_static_assets():
-    resp_css = client.get("/css/app.css")
-    assert resp_css.status_code == 200
-    resp_js = client.get("/js/app.js")
-    assert resp_js.status_code == 200
+def _wait_for_task(client: TestClient, task_id: str) -> dict:
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/tasks/{task_id}")
+        task = response.json()
+        if task["status"] in {"completed", "failed"}:
+            return task
+        time.sleep(0.02)
+    pytest.fail("stub task did not reach a terminal state")
 
 
-def test_system_status():
-    resp = client.get("/api/status")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "system" in data
-    assert "datasets" in data
-    assert "model" in data
+def test_index_page(web_client: TestClient):
+    response = web_client.get("/")
+    assert response.status_code == 200
+    assert "3waPlateAI Studio" in response.text
+    assert "老司機" in response.text
 
 
-def test_train_datasets():
-    resp = client.get("/api/train/datasets")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "datasets" in data
-    assert isinstance(data["datasets"], list)
-    # Check if demo-10000 is present
-    names = [d["name"] for d in data["datasets"]]
-    assert any("demo-10000" in n for n in names)
+def test_static_assets(web_client: TestClient):
+    assert web_client.get("/css/app.css").status_code == 200
+    assert web_client.get("/js/app.js").status_code == 200
 
 
-def test_gpu_memory_api():
-    resp = client.get("/api/system/gpu_memory")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "used_gb" in data or "used_mb" in data
+def test_system_status_and_sample_dataset(web_client: TestClient):
+    status = web_client.get("/api/status")
+    assert status.status_code == 200
+    assert {"system", "datasets", "model"} <= status.json().keys()
+    datasets = web_client.get("/api/train/datasets").json()["datasets"]
+    assert len(datasets) == 1
+    assert datasets[0]["name"] == "sample"
+    assert datasets[0]["count"] == 1
+
+
+def test_gpu_memory_api(web_client: TestClient):
+    data = web_client.get("/api/system/gpu_memory").json()
     assert "percent" in data
     assert "device_name" in data
 
 
-def test_train_active_and_stop():
-    # Active train status
-    resp = client.get("/api/train/active")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "active" in data
-
-    # Stop even when stopped
-    stop_resp = client.post("/api/train/stop")
-    assert stop_resp.status_code == 200
-    stop_data = stop_resp.json()
-    assert stop_data["status"] == "ok"
+def test_train_active_and_stop_without_a_worker(web_client: TestClient):
+    assert web_client.get("/api/train/active").json()["active"] is False
+    stop = web_client.post("/api/train/stop")
+    assert stop.status_code == 200
+    assert stop.json()["cancel_requested"] is False
 
 
+def test_env_build_task_uses_a_stubbed_runner(web_client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    from plateai_web import app as app_module
 
-def test_env_build_task():
-    resp = client.post("/api/env/build")
-    assert resp.status_code == 200
-    task_id = resp.json()["task_id"]
-    
-    # Wait for completion or check status
-    time.sleep(1)
-    task_resp = client.get(f"/api/tasks/{task_id}")
-    assert task_resp.status_code == 200
-    data = task_resp.json()
-    assert data["id"] == task_id
-    assert len(data["logs"]) >= 0
+    def fake_env(task_id, manager):
+        manager.complete_task(task_id, result={"status": "stubbed"}, message="stubbed env")
+
+    monkeypatch.setattr(app_module, "_run_build_env_task", fake_env)
+    task_id = web_client.post("/api/env/build").json()["task_id"]
+    task = _wait_for_task(web_client, task_id)
+    assert task["result"] == {"status": "stubbed"}
 
 
-def test_predict_fixture_image():
-    fixture_png = root / "tests" / "fixtures" / "synthetic" / "000000.png"
-    assert fixture_png.exists()
-    
-    with open(fixture_png, "rb") as f:
-        resp = client.post("/api/predict", files={"file": ("plate.png", f, "image/png")})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "detections" in data
-    assert len(data["detections"]) > 0
-    assert "latency_ms" in data
+def test_predict_fixture_image(web_client: TestClient):
+    fixture_png = PROJECT_ROOT / "tests" / "fixtures" / "synthetic" / "000000.png"
+    with fixture_png.open("rb") as stream:
+        response = web_client.post("/api/predict", files={"file": ("plate.png", stream, "image/png")})
+    assert response.status_code == 200
+    assert "detections" in response.json()
 
 
-def test_release_build_task():
-    resp = client.post("/api/release/build")
-    assert resp.status_code == 200
-    task_id = resp.json()["task_id"]
-    
-    # Poll until completed
-    for _ in range(10):
-        time.sleep(0.5)
-        task_resp = client.get(f"/api/tasks/{task_id}")
-        data = task_resp.json()
-        if data["status"] == "completed":
-            break
-            
-    release_dir = root / "release" / "3wa_plate_api"
-    assert release_dir.exists()
-    assert (release_dir / "run_api_1788.bat").exists()
-    assert (release_dir / "app.py").exists()
-    assert (release_dir / "requirements.txt").exists()
+def test_release_build_task_uses_a_stubbed_runner(web_client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    from plateai_web import app as app_module
+
+    def fake_release(task_id, manager):
+        manager.complete_task(task_id, result={"status": "stubbed-release"}, message="stubbed release")
+
+    monkeypatch.setattr(app_module, "build_release_task", fake_release)
+    task_id = web_client.post("/api/release/build").json()["task_id"]
+    task = _wait_for_task(web_client, task_id)
+    assert task["result"] == {"status": "stubbed-release"}

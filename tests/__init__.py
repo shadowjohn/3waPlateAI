@@ -1,1 +1,1 @@
-"""3waPlateAI tests."""
+"""Project-local test helpers and test modules."""

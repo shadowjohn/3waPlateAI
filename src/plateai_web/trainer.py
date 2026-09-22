@@ -3,11 +3,351 @@ from __future__ import annotations
 
 import json
 import re
-import sys
-import uuid
 from pathlib import Path
-from typing import Any
-from .tasks import TaskManager
+from typing import Any, Callable, Mapping
+
+from plateai_trainer.training.control import TrainingProgress
+
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_TASK_ID_RE = re.compile(r"[0-9a-f]{12}\Z")
+_RUN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+_WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
+_DEFAULT_CHARSET = "configs/charsets/tw_new_style_private_passenger_v1.txt"
+_DEFAULT_RULES = "configs/plate_rules/tw_new_style_private_passenger_v1.json"
+_DEFAULT_TEMPLATE = "configs/plate_templates/new_style_private_passenger_white_v1.json"
+_DEFAULT_AUGMENTATION = "configs/augmentation/standard_v1.json"
+
+
+def _resolve_within(root: Path, value: object, *, field: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} must be a non-empty path string")
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{field} must stay within the project root") from exc
+    return resolved
+
+
+def _resolve_config_path(root: Path, relative_path: str, *, field: str) -> Path:
+    path = Path(relative_path)
+    if path.is_absolute() or any(part == ".." for part in path.parts):
+        raise ValueError(f"{field} must reference a bundled configuration file")
+    for base in (root, _REPOSITORY_ROOT):
+        candidate = (base / path).resolve()
+        try:
+            candidate.relative_to(base.resolve())
+        except ValueError:
+            continue
+        if candidate.is_file():
+            return candidate
+    raise ValueError(f"{field} does not resolve to a configuration file: {relative_path}")
+
+
+def _dataset_contract(root: Path, dataset: Path) -> dict[str, object]:
+    config_path = dataset / "generation_config.json"
+    if not config_path.is_file():
+        raise ValueError(f"dataset is missing generation_config.json: {dataset}")
+    try:
+        with config_path.open("r", encoding="utf-8") as stream:
+            document = json.load(stream)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"dataset generation_config.json is unreadable: {dataset}") from exc
+    if not isinstance(document, dict) or type(document.get("seed")) is not int:
+        raise ValueError(f"dataset generation_config.json has no integer seed: {dataset}")
+    config_paths = document.get("config_paths")
+    if not isinstance(config_paths, dict):
+        raise ValueError(f"dataset generation_config.json has no config_paths: {dataset}")
+    charset = config_paths.get("charset")
+    rules = config_paths.get("rules")
+    if not isinstance(charset, str) or not isinstance(rules, str):
+        raise ValueError(f"dataset generation_config.json lacks charset/rules paths: {dataset}")
+    return {
+        "path": dataset,
+        "seed": document["seed"],
+        "charset": _resolve_config_path(root, charset, field="dataset charset"),
+        "rules": _resolve_config_path(root, rules, field="dataset rules"),
+    }
+
+
+def _compatible_validation(
+    train: Mapping[str, object], validation: Mapping[str, object]
+) -> bool:
+    return (
+        validation["path"] != train["path"]
+        and validation["seed"] != train["seed"]
+        and validation["charset"] == train["charset"]
+        and validation["rules"] == train["rules"]
+    )
+
+
+def _validate_run_name(value: object, task_id: str) -> str:
+    run_name = f"run-{task_id}" if value is None else value
+    if not isinstance(run_name, str) or not _RUN_NAME_RE.fullmatch(run_name):
+        raise ValueError("run_name must use only letters, digits, '.', '_' or '-' and no paths")
+    if run_name.endswith(".") or run_name.lower() in _WINDOWS_RESERVED_NAMES:
+        raise ValueError("run_name is not a portable Windows directory name")
+    return run_name
+
+
+def _positive_integer(value: object, *, field: str, default: int, maximum: int) -> int:
+    parsed = default if value is None else value
+    if type(parsed) is not int or not 1 <= parsed <= maximum:
+        raise ValueError(f"{field} must be an integer from 1 to {maximum}")
+    return parsed
+
+
+def _validate_device(value: object) -> str:
+    device = "auto" if value is None else value
+    if not isinstance(device, str) or not re.fullmatch(r"(?:auto|cpu|cuda|cuda:[0-9]+)", device):
+        raise ValueError("device must be auto, cpu, cuda, or cuda:<index>")
+    return device
+
+
+def validate_training_request(root: Path, task_id: str, request: dict) -> dict:
+    """Validate a Web training request without creating or replacing artifacts."""
+
+    if not isinstance(request, dict):
+        raise ValueError("training request must be an object")
+    if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
+        raise ValueError("task_id must be a 12-character lowercase hexadecimal id")
+
+    root = root.resolve()
+    run_name = _validate_run_name(request.get("run_name"), task_id)
+    run_directory = root / "runs" / run_name
+    bundle_directory = root / "models" / "bundles" / f"train-{task_id}"
+    if run_directory.exists():
+        raise FileExistsError(f"training output already exists: {run_directory}")
+    if bundle_directory.exists():
+        raise FileExistsError(f"model bundle output already exists: {bundle_directory}")
+
+    train_value = request.get("train_dataset")
+    generated_train = train_value is None
+    train_directory = root / "out" / "train-default" if generated_train else _resolve_within(
+        root, train_value, field="train_dataset"
+    )
+    if not generated_train and not train_directory.is_dir():
+        raise ValueError(f"train_dataset does not exist: {train_directory}")
+    if generated_train and train_directory.exists() and not train_directory.is_dir():
+        raise ValueError(f"default train dataset is not a directory: {train_directory}")
+
+    train_contract: dict[str, object]
+    if generated_train and not train_directory.exists():
+        train_contract = {
+            "path": train_directory,
+            "seed": 42,
+            "charset": _resolve_config_path(root, _DEFAULT_CHARSET, field="default charset"),
+            "rules": _resolve_config_path(root, _DEFAULT_RULES, field="default rules"),
+        }
+    else:
+        train_contract = _dataset_contract(root, train_directory)
+
+    validation_value = request.get("validation_dataset")
+    generated_validation = False
+    if validation_value is not None:
+        validation_directory = _resolve_within(root, validation_value, field="validation_dataset")
+        if not validation_directory.is_dir():
+            raise ValueError(f"validation_dataset does not exist: {validation_directory}")
+        validation_contract = _dataset_contract(root, validation_directory)
+        if not _compatible_validation(train_contract, validation_contract):
+            raise ValueError("validation_dataset must use a different seed and matching charset/rules")
+    else:
+        validation_contract = None
+        out_directory = root / "out"
+        if out_directory.is_dir():
+            for candidate in sorted(out_directory.iterdir(), key=lambda path: path.name.lower()):
+                if not candidate.is_dir() or "val" not in candidate.name.lower():
+                    continue
+                try:
+                    candidate_contract = _dataset_contract(root, candidate.resolve())
+                except ValueError:
+                    continue
+                if _compatible_validation(train_contract, candidate_contract):
+                    validation_directory = candidate.resolve()
+                    validation_contract = candidate_contract
+                    break
+        if validation_contract is None:
+            generated_validation = True
+            validation_directory = root / "out" / f"val-{task_id}"
+            if validation_directory.exists():
+                raise FileExistsError(
+                    f"generated validation output already exists: {validation_directory}"
+                )
+
+    return {
+        "task_id": task_id,
+        "epochs": _positive_integer(request.get("epochs"), field="epochs", default=5, maximum=100),
+        "batch_size": _positive_integer(
+            request.get("batch_size"), field="batch_size", default=32, maximum=256
+        ),
+        "device": _validate_device(request.get("device")),
+        "run_name": run_name,
+        "run_directory": run_directory,
+        "bundle_directory": bundle_directory,
+        "train_directory": train_directory,
+        "validation_directory": validation_directory,
+        "generated_train": generated_train and not train_directory.exists(),
+        "generated_validation": generated_validation,
+        "charset_path": train_contract["charset"],
+        "rules_path": train_contract["rules"],
+        "train_seed": train_contract["seed"],
+    }
+
+
+def _generate_default_dataset(
+    root: Path,
+    *,
+    output: Path,
+    count: int,
+    seed: int,
+    on_progress: Callable[[TrainingProgress], None],
+    check_cancelled: Callable[[], None],
+    phase: str,
+) -> None:
+    from plateai_trainer.synthetic.dataset import generate_dataset
+    from plateai_trainer.synthetic.models import GenerationRequest
+
+    def report_progress(completed: int, total: int, _display: str) -> None:
+        check_cancelled()
+        on_progress(
+            TrainingProgress(
+                kind="batch",
+                phase=phase,
+                batch=completed,
+                total_batches=total,
+            )
+        )
+
+    check_cancelled()
+    on_progress(TrainingProgress(kind="stage", phase=phase))
+    generate_dataset(
+        GenerationRequest(
+            count=count,
+            seed=seed,
+            output=output,
+            charset_path=_resolve_config_path(root, _DEFAULT_CHARSET, field="default charset"),
+            rules_path=_resolve_config_path(root, _DEFAULT_RULES, field="default rules"),
+            template_path=_resolve_config_path(root, _DEFAULT_TEMPLATE, field="default template"),
+            augmentation_path=_resolve_config_path(
+                root, _DEFAULT_AUGMENTATION, field="default augmentation"
+            ),
+        ),
+        progress_callback=report_progress,
+    )
+    check_cancelled()
+
+
+def _web_history(history: object) -> list[dict[str, object]]:
+    if not isinstance(history, list):
+        raise ValueError("training report history is invalid")
+    result: list[dict[str, object]] = []
+    for record in history:
+        if not isinstance(record, dict):
+            raise ValueError("training report history entry is invalid")
+        result.append(
+            {
+                "epoch": record["epoch"],
+                "train_loss": record["train_loss"],
+                "val_loss": record["val_loss"],
+                "val_acc": round(float(record["val_acc"]) * 100, 1),
+            }
+        )
+    return result
+
+
+def run_training_pipeline(
+    root: Path,
+    task_id: str,
+    request: dict,
+    *,
+    on_progress: Callable[[TrainingProgress], None],
+    on_result: Callable[[dict], None],
+    check_cancelled: Callable[[], None],
+) -> dict:
+    """Generate missing inputs, train, export a task-local bundle, and report real metrics."""
+
+    from plateai_trainer.export.bundle import ExportRequest, export_crop_bundle
+    from plateai_trainer.training.engine import TrainingConfig, train_recognizer
+
+    validated = validate_training_request(root, task_id, request)
+    root = root.resolve()
+    if validated["generated_train"]:
+        _generate_default_dataset(
+            root,
+            output=validated["train_directory"],
+            count=2000,
+            seed=int(validated["train_seed"]),
+            on_progress=on_progress,
+            check_cancelled=check_cancelled,
+            phase="generating_train",
+        )
+    if validated["generated_validation"]:
+        validation_seed = 999 if validated["train_seed"] != 999 else 8888
+        _generate_default_dataset(
+            root,
+            output=validated["validation_directory"],
+            count=500,
+            seed=validation_seed,
+            on_progress=on_progress,
+            check_cancelled=check_cancelled,
+            phase="generating_validation",
+        )
+
+    check_cancelled()
+    training = train_recognizer(
+        TrainingConfig(
+            train_directory=validated["train_directory"],
+            validation_directory=validated["validation_directory"],
+            output_directory=validated["run_directory"],
+            epochs=validated["epochs"],
+            batch_size=validated["batch_size"],
+            device=validated["device"],
+            charset_path=validated["charset_path"],
+            rules_path=validated["rules_path"],
+        ),
+        on_progress=on_progress,
+        check_cancelled=check_cancelled,
+    )
+    check_cancelled()
+    on_progress(TrainingProgress(kind="stage", phase="exporting"))
+    bundle_directory = export_crop_bundle(
+        ExportRequest(
+            checkpoint=training.best_checkpoint,
+            report=training.report_path,
+            output=validated["bundle_directory"],
+            charset_path=validated["charset_path"],
+            rules_path=validated["rules_path"],
+        )
+    )
+    check_cancelled()
+
+    history = _web_history(training.report.get("history"))
+    current_metrics = history[-1] if history else None
+    result = {
+        "status": "success",
+        "run_dir": str(training.output_directory),
+        "checkpoint": str(training.best_checkpoint),
+        "report": str(training.report_path),
+        "bundle_dir": str(bundle_directory),
+        "history": history,
+        "current_metrics": current_metrics,
+        "total_epochs": validated["epochs"],
+        "final_accuracy": current_metrics["val_acc"] if current_metrics else None,
+        "final_loss": current_metrics["train_loss"] if current_metrics else None,
+    }
+    on_result(result)
+    return result
 
 
 def find_available_datasets(root: Path) -> list[dict[str, Any]]:
@@ -31,211 +371,22 @@ def find_available_datasets(root: Path) -> list[dict[str, Any]]:
 
 
 def get_dataset_seed(path: Path) -> int | None:
-    cfg = path / "generation_config.json"
-    if cfg.exists():
-        try:
-            with open(cfg, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("seed")
-        except Exception:
-            pass
-    return None
+    """Return a generated dataset's seed when its metadata is valid JSON."""
+
+    try:
+        with (Path(path) / "generation_config.json").open("r", encoding="utf-8") as stream:
+            seed = json.load(stream).get("seed")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+    return seed if type(seed) is int else None
 
 
 def get_dataset_config_paths(path: Path) -> dict[str, str]:
-    cfg = path / "generation_config.json"
-    if cfg.exists():
-        try:
-            with open(cfg, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("config_paths", {})
-        except Exception:
-            pass
-    return {}
+    """Return the recorded portable config paths without mutating a dataset."""
 
-
-def train_model_task(
-    task_id: str,
-    tm: TaskManager,
-    epochs: int = 10,
-    train_dir: str | None = None,
-    val_dir: str | None = None,
-    run_name: str | None = None,
-):
-    root = Path(__file__).resolve().parent.parent.parent
-    if not run_name:
-        run_name = f"run-{uuid.uuid4().hex[:6]}"
-
-    runs_dir = root / "runs" / run_name
-    model_bundle_dir = root / "models" / "bundles" / "active-v1"
-
-    tm.update_progress(task_id, 3, "正在檢查資料集並挑選大樣本...")
-    tm.append_log(task_id, "=== 3waPlateAI PyTorch CTC 模型訓練 ===")
-    tm.append_log(task_id, f"設定 Epochs: {epochs}")
-
-    # 1. Select Training Dataset (Prefer largest sample, e.g. demo-10000)
-    datasets = find_available_datasets(root)
-    chosen_train_path: Path | None = None
-    train_samples_count = 0
-
-    if train_dir and Path(train_dir).exists():
-        chosen_train_path = Path(train_dir)
-        imgs = len(list((chosen_train_path / "images").glob("*.png")))
-        train_samples_count = imgs or len(list(chosen_train_path.glob("*.png")))
-    elif datasets:
-        # Pick the largest dataset (usually demo-10000)
-        best = datasets[0]
-        chosen_train_path = Path(best["path"])
-        train_samples_count = best["count"]
-        tm.append_log(task_id, f"[智能挑選] 自動優先選擇大樣本訓練集: {best['name']} (共 {best['count']} 張車牌樣本！)")
-    else:
-        # None found, synthesize default
-        default_train = root / "out" / "train-default"
-        if not default_train.exists():
-            tm.append_log(task_id, "尚未發現訓練資料集，自動快速合成 2,000 張訓練樣本...")
-            from .generator import generate_dataset_task
-            generate_dataset_task(task_id, tm, count=2000, font="taiwan_plate", output_dir_name="train-default")
-        chosen_train_path = default_train
-        train_samples_count = 2000
-
-    train_seed = get_dataset_seed(chosen_train_path)
-    train_configs = get_dataset_config_paths(chosen_train_path)
-    train_charset_rel = train_configs.get("charset", "configs/charsets/tw_standard_v1.txt")
-    train_rules_rel = train_configs.get("rules", "configs/plate_rules/tw_standard_v1.json")
-
-    charset = root / train_charset_rel if (root / train_charset_rel).exists() else (root / "configs" / "charsets" / "tw_standard_v1.txt")
-    rules = root / train_rules_rel if (root / train_rules_rel).exists() else (root / "configs" / "plate_rules" / "tw_standard_v1.json")
-
-    # 2. Select Validation Dataset (Must have distinct seed AND matching charset/rules)
-    chosen_val_path: Path | None = None
-    if val_dir and Path(val_dir).exists() and Path(val_dir) != chosen_train_path:
-        val_seed = get_dataset_seed(Path(val_dir))
-        val_cfgs = get_dataset_config_paths(Path(val_dir))
-        if (val_seed != train_seed) and (val_cfgs.get("charset") == train_charset_rel):
-            chosen_val_path = Path(val_dir)
-
-    if not chosen_val_path:
-        # Search among existing datasets for one whose seed differs and charset matches
-        for d in datasets:
-            p = Path(d["path"])
-            if p != chosen_train_path and "val" in d["name"]:
-                cand_seed = get_dataset_seed(p)
-                cand_cfgs = get_dataset_config_paths(p)
-                if cand_seed != train_seed and cand_cfgs.get("charset") == train_charset_rel:
-                    chosen_val_path = p
-                    break
-
-    if not chosen_val_path:
-        # Generate an isolated validation set with guaranteed non-overlapping seed and identical charset/rules
-        target_val_seed = 999 if train_seed != 999 else 8888
-        default_val = root / "out" / f"val-seed-{target_val_seed}"
-        if not default_val.exists():
-            tm.append_log(task_id, f"自動準備獨立 seed ({target_val_seed}) 的 500 張驗證集...")
-            from .generator import generate_dataset_task
-            generate_dataset_task(task_id, tm, count=500, seed=target_val_seed, font="taiwan_plate", output_dir_name=default_val.name)
-        chosen_val_path = default_val
-
-    val_imgs = len(list((chosen_val_path / "images").glob("*.png"))) if (chosen_val_path / "images").exists() else len(list(chosen_val_path.glob("*.png")))
-    tm.append_log(task_id, f"訓練集路徑: {chosen_train_path} ({train_samples_count} 張)")
-    tm.append_log(task_id, f"驗證集路徑: {chosen_val_path} ({val_imgs} 張)")
-    tm.append_log(task_id, f"訓練輸出目錄: {runs_dir}")
-    tm.append_log(task_id, f"採用字集規範: {charset.name}")
-    tm.append_log(task_id, f"採用規則規範: {rules.name}")
-
-    tm.update_progress(task_id, 10, "啟動 PyTorch CTC 訓練引擎 (支援 GPU/CPU 自動加速)...")
-    py_exec = sys.executable
-
-    cmd_train = [
-        py_exec,
-        "-m", "plateai_trainer.training.cli",
-        "--train", str(chosen_train_path),
-        "--validation", str(chosen_val_path),
-        "--output", str(runs_dir),
-        "--charset", str(charset),
-        "--rules", str(rules),
-        "--epochs", str(epochs),
-        "--device", "auto",
-    ]
-
-    history_metrics: list[dict[str, Any]] = []
-
-    def on_train_line(line: str):
-        # Match: Epoch 1/10 - train_loss: 1.2345 - val_loss: 0.8765 - val_acc: 0.7890
-        m = re.search(
-            r"Epoch\s*(\d+)/(\d+)\s*-\s*train_loss:\s*([\d\.]+)(?:\s*-\s*val_loss:\s*([\d\.]+))?\s*-\s*val_acc:\s*([\d\.]+)",
-            line,
-            re.IGNORECASE,
-        )
-        if m:
-            cur, total = int(m.group(1)), int(m.group(2))
-            t_loss = float(m.group(3))
-            v_loss = float(m.group(4)) if m.group(4) is not None else round(t_loss * 0.9, 4)
-            v_acc = float(m.group(5))
-            metric = {
-                "epoch": cur,
-                "total_epochs": total,
-                "train_loss": round(t_loss, 4),
-                "val_loss": round(v_loss, 4),
-                "val_acc": round(v_acc * 100, 1),
-            }
-            history_metrics.append(metric)
-            pct = int(10 + (cur / total) * 75)
-            tm.update_progress(
-                task_id,
-                pct,
-                f"訓練中 Epoch {cur}/{total} | Loss: {t_loss:.4f} | Acc: {metric['val_acc']}%"
-            )
-            tm.update_task_result(task_id, {
-                "history": list(history_metrics),
-                "current_metrics": metric,
-                "total_epochs": total,
-            })
-
-    rc = tm.run_subprocess_command(task_id, cmd_train, cwd=str(root), on_line=on_train_line)
-    t = tm.get_task(task_id)
-    if t and t.status == TaskStatus.CANCELLED:
-        tm.append_log(task_id, "[INFO] 訓練已被使用者中斷，狀態已安全歸位。")
-        return
-
-    if rc != 0:
-        tm.fail_task(task_id, f"模型訓練中斷，Exit Code: {rc}")
-        return
-
-    tm.update_progress(task_id, 88, "訓練完成！正在匯出 ONNX Model Bundle...")
-    checkpoint_pt = runs_dir / "best.pt"
-    report_json = runs_dir / "report.json"
-
-    cmd_export = [
-        py_exec,
-        "-m", "plateai_trainer.export.cli",
-        "--checkpoint", str(checkpoint_pt),
-        "--report", str(report_json),
-        "--output", str(model_bundle_dir),
-        "--charset", str(charset),
-        "--rules", str(rules),
-    ]
-
-    rc_exp = tm.run_subprocess_command(task_id, cmd_export, cwd=str(root))
-    if rc_exp == 0:
-        tm.append_log(task_id, "=== 模型訓練與 ONNX 導出全部成功！===")
-        tm.append_log(task_id, f"[OK] 模型權重已保存: {checkpoint_pt}")
-        tm.append_log(task_id, f"[OK] ONNX Bundle 已就緒: {model_bundle_dir}")
-        
-        final_acc = history_metrics[-1]["val_acc"] if history_metrics else 98.5
-        final_loss = history_metrics[-1]["train_loss"] if history_metrics else 0.05
-        
-        tm.update_progress(task_id, 100, f"模型訓練完成！最終準確率: {final_acc}%")
-        tm.complete_task(
-            task_id,
-            result={
-                "status": "success",
-                "bundle_dir": str(model_bundle_dir),
-                "run_dir": str(runs_dir),
-                "history": history_metrics,
-                "final_accuracy": final_acc,
-                "final_loss": final_loss,
-            },
-            message=f"模型訓練成功！最終準確率: {final_acc}%, Loss: {final_loss}",
-        )
-    else:
-        tm.fail_task(task_id, f"ONNX 匯出失敗，Exit Code: {rc_exp}")
+    try:
+        with (Path(path) / "generation_config.json").open("r", encoding="utf-8") as stream:
+            config_paths = json.load(stream).get("config_paths")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return {}
+    return dict(config_paths) if isinstance(config_paths, dict) else {}

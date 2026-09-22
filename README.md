@@ -55,7 +55,7 @@ M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓�
 提供開發者最直覺的一鍵訓練指令：
 - **自動偵測 GPU**：預設優先使用 CUDA 訓練，無顯卡時自動退回 CPU。
 - **自動補齊訓練資料**：若尚未合成訓練集，自動以專用車牌字型（`taiwan_plate`）與台灣標準規則快速合成 2,000 張訓練樣本與 500 張驗證樣本。
-- **自動匯出 ONNX Bundle**：訓練完成並通過 Native/ONNX parity 驗證後，直接導出至 `models/bundles/active-v1`，供辨識程式與 Web 介面即時使用。
+- **自動匯出 ONNX Bundle**：訓練完成並通過 Native/ONNX parity 驗證後，匯出至本機指定的 bundle 位置；啟用到既有辨識流程必須另行人工確認。
 
 ```powershell
 .\run_train.bat                     # 一鍵自動化訓練與 ONNX 導出 (預設 10 epochs, auto-gpu)
@@ -69,6 +69,17 @@ M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓�
 ```powershell
 .\run_server.bat
 ```
+
+### Web Studio 背景訓練
+
+Web Studio 預設以不啟用 reload 的方式啟動；開發時才明確加上旗標：
+
+```powershell
+.\run_server.bat
+.\run_server.bat --dev-reload
+```
+
+從訓練頁開始的工作會由獨立背景 worker 執行，所以關閉 Web Studio 或開發 reload 不會自動停止它；請回到訓練頁按「中斷訓練」，等待畫面確認已停止。每次 Web 訓練會建立新的 `runs\<run-name>` 與 `models\bundles\train-<task-id>`，完成只代表「已匯出，尚未啟用」。請先檢視 bundle 與驗證結果，再依你的部署流程人工選擇是否啟用模型。
 
 ### 一鍵下載真實測試照片 (`run_get_test_data.bat` / `run_get_test_data.ps1`)
 
