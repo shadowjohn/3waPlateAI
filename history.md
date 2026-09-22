@@ -231,3 +231,17 @@ This file is an append-only record of important implementation decisions, local 
 - Enhanced Web Studio UI (`web/index.html`, `web/js/app.js`, `web/css/app.css`) with `#infer-diagnostic-bar`, crop preview thumbnail buttons opening `#modal-crop-inspect`, greedy text display, timing tags, and mascot one-click activation button.
 - Verification: Web API tests expanded in `tests/test_web_api.py` (9 passed); full regression test suite passed (353 passed in 175.47s); live server restarted with `--dev-reload` on port 1688 and verified via API calls.
 
+## 2026-09-22 - Step 2: Road real-photo benchmark suite & empirical baseline establishment
+
+- Created `plateai_bench` package (`src/plateai_bench/`):
+  - `metrics.py`: implements Levenshtein edit distance, `compute_cer`, analytical convex polygon IoU via `cv2.convexHull` and `cv2.intersectConvexConvex`, and objective failure attribution (`SUCCESS`, `LOCATOR_MISSED`, `LOCATOR_BAD_CROP`, `RECOGNIZER_MISREAD`, `RULE_FILTERED`).
+  - `runner.py`: implements `BenchmarkRunner` supporting dual-mode evaluation: Mode A (Oracle Crop OCR from GT corners) and Mode B (End-to-End detection and recognition with IoU matching).
+- Built CLI tool `tools/evaluate_real_benchmark.py` and prepared `datasets/real_benchmarks/user_cases.jsonl` (with `213-NSK` and `MDX-9717` ground-truth corners), plus EZCon car (`reader_v1_eligible_test.jsonl`) and motorcycle (`motorcycle_test.jsonl`) splits.
+- Replaced mock simulation sleep and hardcoded accuracy in `src/plateai_web/evaluator.py` with real `BenchmarkRunner` calls.
+- Baseline findings on active recognizer (`active-v1`) across 62 real road samples written to `out/benchmarks/baseline_report.json`:
+  - User motorcycle cases: Oracle Acc 0.0% (CER 61.5%), E2E Acc 0.0% (100% `RECOGNIZER_MISREAD`).
+  - EZCon motorcycles (30): Oracle Acc 0.0% (CER 77.8%), E2E Recall 46.7%, E2E Acc 0.0% (47% `RECOGNIZER_MISREAD`, 43% `LOCATOR_BAD_CROP`, 10% `LOCATOR_MISSED`).
+  - EZCon passenger cars (30): Oracle Acc 3.3% (CER 50.5%), E2E Recall 53.3%, E2E Acc 3.3% (50% `RECOGNIZER_MISREAD`, 27% `LOCATOR_BAD_CROP`, 20% `LOCATOR_MISSED`).
+- Verification: unit tests added in `tests/test_real_benchmark.py` (4 passed); full test suite passed (**357 passed in 140.57s**).
+
+

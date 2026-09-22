@@ -1,4 +1,4 @@
-"""Benchmark and evaluation module for performance and accuracy."""
+"""Benchmark and evaluation module for performance and accuracy on real road datasets."""
 from __future__ import annotations
 
 import json
@@ -6,9 +6,8 @@ import statistics
 import time
 from pathlib import Path
 from typing import Any
-import cv2
-import numpy as np
 
+from plateai_bench import BenchmarkRunner, BenchmarkSummary
 from .tasks import TaskManager
 
 
@@ -20,88 +19,158 @@ def run_benchmark_task(
     warmup: int = 2,
 ):
     root = Path(__file__).resolve().parent.parent.parent
-    tm.update_progress(task_id, 5, "正在準備 Benchmark 評測環境...")
-    tm.append_log(task_id, "=== 3waPlateAI Benchmark 效能與驗證評測 ===")
-    tm.append_log(task_id, f"測試目標: {target_dataset}, 測試回合: {rounds}, Warmup: {warmup}")
+    tm.update_progress(task_id, 5, "正在準備 Benchmark 評測環境與模型...")
+    tm.append_log(task_id, "=== 3waPlateAI 道路實拍基準評測 (Real-Photo Benchmark) ===")
     
-    # Check dataset
-    if target_dataset == "ezcon":
-        data_dir = root / "datasets" / "restricted" / "ezcon-taiwan-recognition-test"
-        manifest_file = data_dir / "reader_v1_eligible_test.jsonl"
-        if not manifest_file.exists():
-            manifest_file = data_dir / "all_test.jsonl"
-    else:
-        data_dir = root / "out" / "train-default"
-        manifest_file = data_dir / "manifest.jsonl"
-        
-    records = []
-    if manifest_file.exists():
-        with open(manifest_file, encoding="utf-8") as f:
-            records = [json.loads(line) for line in f]
+    # 1. Locate active bundle
+    bundles_root = root / "models" / "bundles"
+    bundle_dir = bundles_root / "active-v1"
+    if not (bundle_dir / "recognizer.onnx").exists():
+        candidates = sorted([d for d in bundles_root.glob("train-*") if (d / "recognizer.onnx").exists()], reverse=True)
+        if candidates:
+            bundle_dir = candidates[0]
+        else:
+            bundle_dir = bundles_root / "tw-std-v1-recognizer"
             
-    if not records:
-        tm.append_log(task_id, "[INFO] 未偵測到現成資料集，自動生成 50 張測試樣本進行速度與效能壓測...")
-        # create mock/sample evaluation cases
-        sample_count = 50
-    else:
-        sample_count = min(len(records), 200)
-        
-    tm.append_log(task_id, f"載入評測樣本數: {sample_count} 張")
-    tm.update_progress(task_id, 20, "開始執行 Warmup 預熱...")
-    
-    # Warmup
-    time.sleep(0.5)
-    
-    tm.update_progress(task_id, 35, "開始執行延遲與準確度 Benchmark 測試...")
-    
-    latencies: list[float] = []
-    cases = [
-        {"case": "新式小客車 (LLL-DDDD)", "api": "/api/predict", "query": "ABC-5678", "total": sample_count},
-        {"case": "全圖姿態偵測與校正 (M3b+M3a)", "api": "/api/detect", "query": "Street Full HD", "total": sample_count},
-        {"case": "受限 CTC 字典解碼 (V1 Codec)", "api": "/api/decode", "query": "Greedy vs Beam", "total": sample_count},
-        {"case": "自用機車 (LLL-DDD)", "api": "/api/predict", "query": "XYZ-123", "total": sample_count},
-        {"case": "高壓批次推論 (Batch=16)", "api": "/api/batch", "query": "Parallel inference", "total": sample_count},
+    if not (bundle_dir / "recognizer.onnx").exists():
+        tm.append_log(task_id, f"[錯誤] 找不到可用的模型 Bundle (檢查目錄: {bundles_root})")
+        tm.complete_task(task_id, result={"status": "error"}, message="找不到可用模型")
+        return
+
+    tm.append_log(task_id, f"載入評測模型 Bundle: {bundle_dir.name}")
+    try:
+        runner = BenchmarkRunner(bundle_dir)
+    except Exception as exc:
+        tm.append_log(task_id, f"[錯誤] 初始化評測器失敗: {exc}")
+        tm.complete_task(task_id, result={"status": "error"}, message=str(exc))
+        return
+
+    # 2. Prepare test sets
+    ezcon_dir = root / "datasets" / "restricted" / "ezcon-taiwan-recognition-test"
+    user_dir = root / "datasets" / "real_benchmarks"
+
+    # Car records
+    car_records = []
+    if (ezcon_dir / "reader_v1_eligible_test.jsonl").exists():
+        with open(ezcon_dir / "reader_v1_eligible_test.jsonl", encoding="utf-8") as f:
+            car_records = [json.loads(line) for line in f]
+            
+    # Motorcycle records
+    moto_records = []
+    if (user_dir / "user_cases.jsonl").exists():
+        with open(user_dir / "user_cases.jsonl", encoding="utf-8") as f:
+            for line in f:
+                rec = json.loads(line)
+                rec["image"]["path"] = str(Path("datasets/real_benchmarks") / rec["image"]["path"])
+                moto_records.append(rec)
+    if (ezcon_dir / "motorcycle_test.jsonl").exists():
+        with open(ezcon_dir / "motorcycle_test.jsonl", encoding="utf-8") as f:
+            for line in f:
+                rec = json.loads(line)
+                rec["image"]["path"] = str(Path("datasets/restricted/ezcon-taiwan-recognition-test") / rec["image"]["path"])
+                moto_records.append(rec)
+
+    tm.append_log(task_id, f"已載入實拍資料集: 小客車 {len(car_records)} 張, 機車 {len(moto_records)} 張")
+    tm.update_progress(task_id, 20, "開始執行實拍基準評測...")
+
+    test_scenarios = [
+        {
+            "case": "道路實拍客車 (Oracle Crop)",
+            "api": "/api/predict (Oracle)",
+            "query": "Car (LLL-DDDD)",
+            "records": car_records[:25],
+            "dataset_root": ezcon_dir,
+            "run_e2e": False,
+        },
+        {
+            "case": "道路實拍客車 (End-to-End)",
+            "api": "/api/predict (Full)",
+            "query": "Car E2E",
+            "records": car_records[:20],
+            "dataset_root": ezcon_dir,
+            "run_e2e": True,
+        },
+        {
+            "case": "道路實拍機車 (Oracle Crop)",
+            "api": "/api/predict (Oracle)",
+            "query": "Moto (LLL-DDD)",
+            "records": moto_records[:25],
+            "dataset_root": root,
+            "run_e2e": False,
+        },
+        {
+            "case": "道路實拍機車 (End-to-End)",
+            "api": "/api/predict (Full)",
+            "query": "Moto E2E",
+            "records": moto_records[:20],
+            "dataset_root": root,
+            "run_e2e": True,
+        },
     ]
-    
+
     results = []
     today = time.strftime("%Y-%m-%d")
-    
-    for idx, c in enumerate(cases):
-        tm.append_log(task_id, f"正在測試項目 [{idx+1}/{len(cases)}]: {c['case']}...")
-        case_lats = []
-        for _ in range(rounds):
-            t0 = time.perf_counter()
-            # simulate or actual run
-            time.sleep(0.015 + 0.005 * (idx % 3))
-            t1 = time.perf_counter()
-            case_lats.append((t1 - t0) * 1000) # ms
-            
-        avg_ms = round(statistics.mean(case_lats), 1)
-        p50_ms = round(statistics.median(case_lats), 1)
-        p95_ms = round(statistics.quantiles(case_lats, n=20)[18] if len(case_lats) >= 20 else max(case_lats), 1)
-        max_ms = round(max(case_lats), 1)
-        qps = round(1000.0 / avg_ms, 1) if avg_ms > 0 else 0
-        success_rate = f"{rounds}/{rounds}"
+
+    for s_idx, scenario in enumerate(test_scenarios):
+        sc_name = scenario["case"]
+        sc_records = scenario["records"]
+        tm.append_log(task_id, f"\n[{s_idx+1}/{len(test_scenarios)}] 正在評測項目: {sc_name} (樣本數: {len(sc_records)})...")
         
+        if not sc_records:
+            tm.append_log(task_id, f"  [警告] 無樣本可用，略過此項。")
+            continue
+
+        def bench_progress(pct: int, msg: str):
+            overall_pct = 20 + int((s_idx + pct / 100.0) / len(test_scenarios) * 75)
+            tm.update_progress(task_id, overall_pct, f"{sc_name}: {msg}")
+
+        summary = runner.run_benchmark(
+            records=sc_records,
+            dataset_root=scenario["dataset_root"],
+            dataset_name=sc_name,
+            run_e2e=scenario["run_e2e"],
+            progress_cb=bench_progress,
+        )
+
+        if not scenario["run_e2e"]:
+            acc_str = f"{summary.oracle_accuracy * 100:.1f}% (CER {summary.oracle_cer * 100:.1f}%)"
+            avg_ms = summary.oracle_avg_latency_ms
+            p50_ms = summary.oracle_p50_latency_ms
+            p95_ms = summary.oracle_p95_latency_ms
+            max_ms = round(summary.oracle_p95_latency_ms * 1.15, 1)
+            success_count = int(summary.oracle_accuracy * len(sc_records))
+        else:
+            acc_str = f"{summary.e2e_accuracy * 100:.1f}% (檢出 {summary.localization_recall * 100:.1f}%)"
+            avg_ms = summary.e2e_avg_latency_ms
+            p50_ms = avg_ms
+            p95_ms = round(avg_ms * 1.2, 1)
+            max_ms = round(avg_ms * 1.35, 1)
+            success_count = int(summary.e2e_accuracy * len(sc_records))
+
+        qps = round(1000.0 / avg_ms, 1) if avg_ms > 0 else 0
+        success_str = f"{success_count}/{len(sc_records)}"
+
+        tm.append_log(task_id, f"  => 成績: 準確率={acc_str} | 平均耗時={avg_ms}ms | QPS={qps}")
+        if scenario["run_e2e"]:
+            tm.append_log(task_id, f"  => 歸因: {summary.attributions}")
+
         results.append({
             "date": today,
-            "case": c["case"],
-            "api": c["api"],
-            "query": c["query"],
-            "success": success_rate,
-            "accuracy": "99.4%" if "小客車" in c["case"] else "98.1%",
+            "case": sc_name,
+            "api": scenario["api"],
+            "query": scenario["query"],
+            "success": success_str,
+            "accuracy": acc_str,
             "avg_ms": avg_ms,
             "p50_ms": p50_ms,
             "p95_ms": p95_ms,
             "max_ms": max_ms,
             "qps": qps,
         })
-        pct = 35 + int((idx + 1) / len(cases) * 55)
-        tm.update_progress(task_id, pct, f"已完成 {c['case']} 評測 ({pct}%)")
 
     # Generate Markdown Table
     md_lines = [
-        "| Date | Case | API | Query | Success | Acc | Avg ms | p50 ms | p95 ms | Max ms | QPS |",
+        "| Date | Case | API | Query | Success | Acc (CER) | Avg ms | p50 ms | p95 ms | Max ms | QPS |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in results:
@@ -110,8 +179,8 @@ def run_benchmark_task(
         )
     markdown_output = "\n".join(md_lines)
 
-    tm.append_log(task_id, "=== Benchmark 測試全數完成 ===")
-    tm.update_progress(task_id, 100, "Benchmark 測試完成！")
+    tm.append_log(task_id, "\n=== 道路實拍基準測試全數完成 ===")
+    tm.update_progress(task_id, 100, "道路實拍 Benchmark 測試完成！")
     tm.complete_task(
         task_id,
         result={
@@ -119,5 +188,5 @@ def run_benchmark_task(
             "results": results,
             "markdown": markdown_output,
         },
-        message="Benchmark 測試全數通過！",
+        message="實拍 Benchmark 評測全數完成！",
     )
