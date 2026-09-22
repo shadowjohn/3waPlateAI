@@ -1,6 +1,6 @@
-"""Live inference predictor module supporting full images and plate crops."""
-from __future__ import annotations
-
+import base64
+import io
+import json
 import math
 import time
 from pathlib import Path
@@ -18,6 +18,18 @@ try:
     HAS_ENGINE = True
 except Exception:
     HAS_ENGINE = False
+
+
+def _image_to_base64_jpeg(crop_rgb: np.ndarray, quality: int = 80) -> str:
+    """Encode an RGB uint8 image as a base64 JPEG data URL."""
+    try:
+        pil_im = Image.fromarray(crop_rgb)
+        buf = io.BytesIO()
+        pil_im.save(buf, format="JPEG", quality=quality)
+        encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        return ""
 
 
 def _box_iou(b1: tuple[int, int, int, int], b2: tuple[int, int, int, int]) -> float:
@@ -44,6 +56,7 @@ class PredictorEngine:
         self.recognizer_session: ort.InferenceSession | None = None
         self.codec: CTCCodec | None = None
         self.ruleset: Any | None = None
+        self.manifest_data: dict[str, Any] = {}
         self._last_mtime: float = 0.0
         self._load_active_model()
 
@@ -53,13 +66,29 @@ class PredictorEngine:
 
         bundle_dir = self.root / "models" / "bundles" / "active-v1"
         rec_onnx = bundle_dir / "recognizer.onnx"
+        manifest_file = bundle_dir / "manifest.json"
 
-        # Check if bundle has reader with detector
-        if bundle_dir.exists() and (bundle_dir / "manifest.json").exists():
+        # Check bundle manifest and capabilities
+        if bundle_dir.exists() and manifest_file.exists():
             try:
-                self.reader = PlateReader.load(bundle_dir)
-                print(f"[PredictorEngine] Loaded full bundle reader from {bundle_dir}")
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    self.manifest_data = json.load(f)
             except Exception as e:
+                print(f"[PredictorEngine] Failed to read manifest: {e}")
+                self.manifest_data = {}
+
+            capabilities = self.manifest_data.get("capabilities", [])
+            has_detector = "detector" in self.manifest_data.get("components", {})
+
+            # Full pipeline requires both crop-recognition and plate-detection
+            if "plate-detection" in capabilities and has_detector:
+                try:
+                    self.reader = PlateReader(bundle_dir)
+                    print(f"[PredictorEngine] Loaded full bundle reader from {bundle_dir}")
+                except Exception as e:
+                    print(f"[PredictorEngine] PlateReader initialization failed: {e}")
+                    self.reader = None
+            else:
                 self.reader = None
 
         # Load standalone recognizer
@@ -67,8 +96,12 @@ class PredictorEngine:
             try:
                 current_mtime = rec_onnx.stat().st_mtime
                 if self.recognizer_session is None or current_mtime > self._last_mtime:
-                    charset_path = self.root / "configs" / "charsets" / "tw_standard_v1.txt"
-                    rules_path = self.root / "configs" / "plate_rules" / "tw_standard_v1.json"
+                    charset_file = self.manifest_data.get("charset", {}).get("file", "charset.txt")
+                    charset_path = bundle_dir / charset_file if (bundle_dir / charset_file).exists() else (self.root / "configs" / "charsets" / "tw_standard_v1.txt")
+
+                    rules_file = self.manifest_data.get("rules", {}).get("file", "plate_rules.json")
+                    rules_path = bundle_dir / rules_file if (bundle_dir / rules_file).exists() else (self.root / "configs" / "plate_rules" / "tw_standard_v1.json")
+
                     charset = load_character_set(charset_path)
                     self.codec = CTCCodec.from_charset(charset)
                     self.ruleset = load_ruleset(rules_path, charset)
@@ -94,33 +127,100 @@ class PredictorEngine:
         self._load_active_model()
 
         detections = []
+        diagnostics: dict[str, Any] = {
+            "bundle_name": "active-v1",
+            "model_id": self.manifest_data.get("model_id", "twplate-v1-recognizer"),
+            "capabilities": self.manifest_data.get("capabilities", ["crop-recognition"]),
+            "pipeline_mode": "hybrid_heuristic",
+            "locator_type": "opencv_contour_v1",
+            "detector_available": self.reader is not None,
+            "timing_breakdown": {
+                "locator_ms": 0.0,
+                "rectifier_ms": 0.0,
+                "onnx_inference_ms": 0.0,
+                "ctc_decoding_ms": 0.0,
+                "total_ms": 0.0,
+            },
+        }
 
-        # 1. If full PlateReader is operational, try it first
+        # 1. If full PlateReader is operational, use neural detector + recognizer pipeline
         if self.reader is not None:
+            diagnostics["pipeline_mode"] = "neural_full_pipeline"
+            diagnostics["locator_type"] = "plate_pose_net"
+            t_read_0 = time.perf_counter()
             try:
-                result = self.reader.read_image(img_rgb)
-                for det in result.plates:
+                result = self.reader.read(img_rgb)
+                t_read_1 = time.perf_counter()
+
+                timing = result.timing
+                read_total_ms = (t_read_1 - t_read_0) * 1000.0
+                ctc_dec_ms = max(
+                    0.0,
+                    read_total_ms
+                    - timing.detector_ms
+                    - timing.rectifier_ms
+                    - timing.recognizer_ms,
+                )
+
+                diagnostics["timing_breakdown"] = {
+                    "locator_ms": round(timing.detector_ms, 1),
+                    "rectifier_ms": round(timing.rectifier_ms, 1),
+                    "onnx_inference_ms": round(timing.recognizer_ms, 1),
+                    "ctc_decoding_ms": round(ctc_dec_ms, 1),
+                    "total_ms": round(read_total_ms, 1),
+                }
+
+                for plate in result.plates:
+                    corners = plate.detection.corners_xy.tolist()
+                    bbox = plate.detection.bbox_xyxy.tolist()
+                    try:
+                        rectified_crop = rectify_plate(img_rgb, plate.detection.corners_xy).image_rgb
+                        crop_b64 = _image_to_base64_jpeg(rectified_crop)
+                    except Exception:
+                        crop_b64 = ""
+
                     detections.append({
-                        "plate_text": det.decoded.display,
-                        "canonical": det.decoded.canonical,
-                        "rule_id": det.decoded.rule_id,
+                        "plate_text": plate.decoded.display,
+                        "canonical": plate.decoded.canonical,
+                        "rule_id": plate.decoded.rule_id,
                         "confidence": round(
-                            float(np.clip(math.exp(det.decoded.log_probability / max(1, len(det.decoded.canonical))) * 100, 5.0, 99.9)),
-                            1
+                            float(
+                                np.clip(
+                                    math.exp(
+                                        plate.decoded.log_probability
+                                        / max(1, len(plate.decoded.canonical))
+                                    )
+                                    * 100,
+                                    5.0,
+                                    99.9,
+                                )
+                            ),
+                            1,
                         ),
-                        "box": [int(x) for x in det.detection.box],
-                        "polygon": [[int(pt[0]), int(pt[1])] for pt in det.detection.polygon],
-                        "plate_type": det.decoded.plate_type or "台灣標準號牌",
+                        "box": [int(x) for x in bbox],
+                        "polygon": [[int(pt[0]), int(pt[1])] for pt in corners],
+                        "plate_type": plate.decoded.plate_type or "台灣標準號牌",
+                        "raw_greedy_text": plate.decoded.canonical,
+                        "crop_base64": crop_b64,
+                        "timings": {
+                            "rectifier_ms": round(timing.rectifier_ms, 1),
+                            "onnx_ms": round(timing.recognizer_ms, 1),
+                            "ctc_ms": round(ctc_dec_ms, 1),
+                        },
                     })
             except Exception as e:
                 print(f"[PredictorEngine] Reader failed: {e}")
 
-        # 2. If no full reader detections, use smart multi-candidate locator + ONNX recognizer
+        # 2. If no full reader (recognizer-only bundle), use contour locator + ONNX recognizer
         if not detections and self.recognizer_session is not None and self.codec is not None:
-            detections = self._detect_and_recognize(img, img_rgb, w, h)
+            detections, timing_stats = self._detect_and_recognize_with_timings(img, img_rgb, w, h)
+            diagnostics["pipeline_mode"] = "hybrid_heuristic"
+            diagnostics["locator_type"] = "opencv_contour_v1"
+            diagnostics["timing_breakdown"] = timing_stats
 
         t1 = time.perf_counter()
         latency_ms = round((t1 - t0) * 1000, 1)
+        diagnostics["timing_breakdown"]["total_ms"] = latency_ms
 
         return {
             "image_width": w,
@@ -129,6 +229,7 @@ class PredictorEngine:
             "latency_ms": latency_ms,
             "count": len(detections),
             "model_status": "onnx_active" if self.recognizer_session else "not_loaded",
+            "diagnostics": diagnostics,
         }
 
     def _extract_candidates(self, img_bgr: np.ndarray, w: int, h: int) -> list[tuple[int, int, int, int]]:
@@ -152,7 +253,7 @@ class PredictorEngine:
             x, y, cw, ch = cv2.boundingRect(c)
             caspect = cw / max(1.0, float(ch))
             carea = cw * ch
-            if 1.5 <= caspect <= 5.0 and carea >= 600 and carea <= (w * h * 0.85):
+            if 1.4 <= caspect <= 5.0 and carea >= 600 and carea <= (w * h * 0.85):
                 raw_boxes.append((x, y, x + cw, y + ch))
 
         # Candidate C: High brightness / white and yellow color thresholding
@@ -167,7 +268,7 @@ class PredictorEngine:
             x, y, cw, ch = cv2.boundingRect(c)
             caspect = cw / max(1.0, float(ch))
             carea = cw * ch
-            if 1.5 <= caspect <= 5.0 and carea >= 600 and carea <= (w * h * 0.85):
+            if 1.4 <= caspect <= 5.0 and carea >= 600 and carea <= (w * h * 0.85):
                 raw_boxes.append((x, y, x + cw, y + ch))
 
         # Non-Maximum Suppression to deduplicate overlapping candidate regions
@@ -179,16 +280,26 @@ class PredictorEngine:
         return deduped
 
     def _predict_crop(self, crop_rgb: np.ndarray) -> dict[str, Any] | None:
-        """Run ONNX CTC recognizer on cropped plate image."""
+        """Run ONNX CTC recognizer on cropped plate image with exact timing measurements."""
         if crop_rgb.shape[0] < 12 or crop_rgb.shape[1] < 24:
             return None
 
+        # 1. Rectifier / Preprocessing timing
+        t_rect_0 = time.perf_counter()
         pil_img = Image.fromarray(crop_rgb)
         pil_resized = pil_img.resize((380, 160), Image.Resampling.BILINEAR)
         tensor = preprocess_v1_rgb(np.array(pil_resized))[np.newaxis, ...]
-        logits = self.recognizer_session.run(["logits"], {"input": tensor})[0][0]  # shape: (80, C)
+        t_rect_1 = time.perf_counter()
+        rectifier_ms = (t_rect_1 - t_rect_0) * 1000.0
 
-        # Softmax probabilities
+        # 2. ONNX Forward Inference timing
+        t_onnx_0 = time.perf_counter()
+        logits = self.recognizer_session.run(["logits"], {"input": tensor})[0][0]  # shape: (80, C)
+        t_onnx_1 = time.perf_counter()
+        onnx_ms = (t_onnx_1 - t_onnx_0) * 1000.0
+
+        # 3. CTC Decoding timing
+        t_dec_0 = time.perf_counter()
         exp_l = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
         probs = exp_l / np.sum(exp_l, axis=-1, keepdims=True)
 
@@ -207,31 +318,43 @@ class PredictorEngine:
         greedy_conf = float(np.mean(greedy_confs) * 100) if greedy_confs else 0.0
 
         # Try Constrained CTC Decode with rule enforcement
+        constrained_result = None
         if self.ruleset is not None:
             try:
                 dec = decode_constrained_ctc_v1(logits, self.codec, self.ruleset)
                 avg_logp = dec.log_probability / max(1, len(dec.canonical))
                 conf = float(np.clip(math.exp(avg_logp) * 100, 5.0, 99.9))
-                # Reasonable confidence threshold
-                if dec.log_probability > -15.0 and len(dec.canonical) >= 4:
-                    return {
+                if dec.log_probability > -18.0 and len(dec.canonical) >= 4:
+                    constrained_result = {
                         "plate_text": dec.display,
                         "canonical": dec.canonical,
                         "rule_id": dec.rule_id,
                         "confidence": round(conf, 1),
-                        "plate_type": "白牌自用車 (新式)" if "LLL-DDDD" in dec.rule_id else (dec.plate_type or "台灣標準號牌"),
+                        "plate_type": "白牌自用車 (新式)" if "lll-dddd" in dec.rule_id.lower() else (dec.plate_type or "台灣標準號牌"),
                         "log_prob": dec.log_probability,
                     }
             except Exception:
                 pass
 
+        t_dec_1 = time.perf_counter()
+        ctc_ms = (t_dec_1 - t_dec_0) * 1000.0
+
+        crop_b64 = _image_to_base64_jpeg(crop_rgb)
+
+        if constrained_result is not None:
+            constrained_result["raw_greedy_text"] = greedy_str
+            constrained_result["crop_base64"] = crop_b64
+            constrained_result["rectifier_ms"] = round(rectifier_ms, 1)
+            constrained_result["onnx_ms"] = round(onnx_ms, 1)
+            constrained_result["ctc_ms"] = round(ctc_ms, 1)
+            return constrained_result
+
         # Fallback to greedy if constrained decoding failed but characters are plausible
-        if len(greedy_str) >= 4 and greedy_conf >= 35.0:
-            # Format display string with dash if standard length
+        if len(greedy_str) >= 4 and greedy_conf >= 30.0:
             if len(greedy_str) == 7:
                 display = f"{greedy_str[:3]}-{greedy_str[3:]}"
             elif len(greedy_str) == 6:
-                display = f"{greedy_str[:2]}-{greedy_str[2:]}"
+                display = f"{greedy_str[:3]}-{greedy_str[3:]}"
             elif len(greedy_str) == 5:
                 display = f"{greedy_str[:2]}-{greedy_str[2:]}"
             else:
@@ -244,19 +367,30 @@ class PredictorEngine:
                 "confidence": round(greedy_conf, 1),
                 "plate_type": "台灣號牌 (未約束)",
                 "log_prob": float(math.log(max(1e-6, greedy_conf / 100.0))),
+                "raw_greedy_text": greedy_str,
+                "crop_base64": crop_b64,
+                "rectifier_ms": round(rectifier_ms, 1),
+                "onnx_ms": round(onnx_ms, 1),
+                "ctc_ms": round(ctc_ms, 1),
             }
 
         return None
 
-    def _detect_and_recognize(
+    def _detect_and_recognize_with_timings(
         self, img_bgr: np.ndarray, img_rgb: np.ndarray, w: int, h: int
-    ) -> list[dict[str, Any]]:
-        """Locate plate candidates and recognize each with true ONNX inference."""
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        """Locate plate candidates and recognize each with true ONNX inference and stage timings."""
+        t_loc_0 = time.perf_counter()
         candidates = self._extract_candidates(img_bgr, w, h)
+        t_loc_1 = time.perf_counter()
+        locator_ms = (t_loc_1 - t_loc_0) * 1000.0
+
         detected = []
+        total_rect_ms = 0.0
+        total_onnx_ms = 0.0
+        total_ctc_ms = 0.0
 
         for x1, y1, x2, y2 in candidates:
-            # Pad candidate 6% to ensure character boundaries are not cut off
             pad_w = int((x2 - x1) * 0.06)
             pad_h = int((y2 - y1) * 0.06)
             px1 = max(0, x1 - pad_w)
@@ -267,6 +401,9 @@ class PredictorEngine:
             crop = img_rgb[py1:py2, px1:px2]
             res = self._predict_crop(crop)
             if res is not None:
+                total_rect_ms += res["rectifier_ms"]
+                total_onnx_ms += res["onnx_ms"]
+                total_ctc_ms += res["ctc_ms"]
                 detected.append({
                     "plate_text": res["plate_text"],
                     "canonical": res["canonical"],
@@ -276,12 +413,27 @@ class PredictorEngine:
                     "polygon": [[px1, py1], [px2, py1], [px2, py2], [px1, py2]],
                     "plate_type": res["plate_type"],
                     "log_prob": res["log_prob"],
+                    "raw_greedy_text": res.get("raw_greedy_text", ""),
+                    "crop_base64": res.get("crop_base64", ""),
+                    "timings": {
+                        "rectifier_ms": res["rectifier_ms"],
+                        "onnx_ms": res["onnx_ms"],
+                        "ctc_ms": res["ctc_ms"],
+                    },
                 })
 
-        if not detected:
-            return []
+        timing_stats = {
+            "locator_ms": round(locator_ms, 1),
+            "rectifier_ms": round(total_rect_ms, 1),
+            "onnx_inference_ms": round(total_onnx_ms, 1),
+            "ctc_decoding_ms": round(total_ctc_ms, 1),
+            "total_ms": round(locator_ms + total_rect_ms + total_onnx_ms + total_ctc_ms, 1),
+        }
 
-        # Sort by log_prob or confidence descending
+        if not detected:
+            return [], timing_stats
+
+        # Sort by confidence descending
         detected.sort(key=lambda d: d["confidence"], reverse=True)
 
         # NMS on results to avoid duplicate boxes for same vehicle
@@ -289,11 +441,10 @@ class PredictorEngine:
         for det in detected:
             b = tuple(det["box"])
             if not any(_box_iou(b, tuple(ex["box"])) > 0.3 for ex in final_detections):
-                # Clean up internal log_prob before returning
                 det_clean = {k: v for k, v in det.items() if k != "log_prob"}
                 final_detections.append(det_clean)
 
-        return final_detections
+        return final_detections, timing_stats
 
 
 # Global predictor instance

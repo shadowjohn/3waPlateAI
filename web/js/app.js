@@ -670,6 +670,43 @@ $(function () {
             $("#train-chart-status").removeClass("bg-warning-subtle text-warning bg-success-subtle text-success").addClass("bg-success text-white").text("已匯出，尚未啟用");
             $status.append($("<div>").addClass("alert alert-success py-2 px-3 mb-0").text("訓練與 ONNX 匯出完成；模型尚未自動啟用。"));
             if (result.bundle_dir) $status.append($("<div>").addClass("small text-success-emphasis mt-1").text(`Bundle: ${result.bundle_dir}`));
+
+            // Extract bundle directory name
+            const bundleName = result.bundle_dir ? result.bundle_dir.split(/[\\\/]/).pop() : (`train-${task.id}`);
+
+            // Render Mascot Pointing Activation Card
+            const $activateCard = $(`
+                <div class="mascot-activate-card mt-3">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="mascot-pointing-box">
+                                <img src="/assets/mascot_pointing.png" class="mascot-pointing-img" alt="3wa 看板娘用力指著啟用按鈕" title="點擊啟用最新模型！">
+                                <span class="pointing-arrow ms-1">👉</span>
+                            </div>
+                            <div>
+                                <h5 class="fw-bold text-success mb-1">
+                                    🎉 新模型已訓練就緒！
+                                </h5>
+                                <div class="text-secondary small mb-1">
+                                    <strong>3wa 老司機看板娘用力指著：</strong>「新大腦訓練出爐啦！用力按旁邊這顆【一鍵啟用】，換裝現役模型飛馳吧！🚗💨」
+                                </div>
+                                <div class="small text-muted font-monospace">
+                                    產出 Bundle：<span class="badge bg-light text-dark border">${bundleName}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="btn btn-activate-model d-flex align-items-center gap-2" id="btn-activate-now" data-bundle="${bundleName}">
+                                <span>⚡</span>
+                                <span>一鍵啟用為現役模型 (active-v1)</span>
+                                <span>🚀</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `);
+            $status.append($activateCard);
+
             if (notifyCompletion) showToast("訓練完成", "已匯出，尚未啟用", true);
         } else if (task.status === "cancelled") {
             $progress.removeClass("progress-bar-animated bg-primary bg-danger").addClass("bg-warning text-dark").text("已停止");
@@ -786,6 +823,35 @@ $(function () {
         });
     });
 
+    // One-Click Model Activation (active-v1)
+    $(document).on("click", "#btn-activate-now", function () {
+        const bundle = $(this).data("bundle");
+        const $btn = $(this);
+        $btn.prop("disabled", true).html('<span class="spinner-border spinner-border-sm me-2"></span>老司機正在全速換裝現役模型...');
+
+        $.ajax({
+            url: "/api/model/activate",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ bundle_name: bundle }),
+            success: function (res) {
+                $btn.removeClass("btn-activate-model").addClass("btn-secondary disabled").html('✅ 已成功啟用為現役模型！');
+                $("#train-chart-status").removeClass("bg-success text-white").addClass("bg-primary text-white").text("✅ 已成功啟用為現役模型 (active-v1)");
+                setMascotLine("太讚了！老司機已成功換上最新 AI 大腦！快去『即時驗證』上傳圖片試試看！🎯✨");
+
+                $("#modal-ok-title").text("模型啟用成功");
+                $("#modal-ok-heading").text("🎉 現役模型已成功換裝！");
+                $("#modal-ok-msg").html(`已成功將 <strong>${res.bundle}</strong> 部署為現役模型 (active-v1)。<br>推論引擎已自動熱重載完成，隨時可以進行即時辨識！`);
+                const modal = new bootstrap.Modal(document.getElementById("modal-task-ok"));
+                modal.show();
+            },
+            error: function (err) {
+                $btn.prop("disabled", false).html('<span>⚡</span><span>一鍵啟用為現役模型 (active-v1)</span><span>🚀</span>');
+                alert("啟用失敗: " + (err.responseJSON ? err.responseJSON.detail : err.statusText));
+            }
+        });
+    });
+
     // 5. Benchmark
     let benchmarkChart = null;
     function initBenchmarkChart(records) {
@@ -893,11 +959,35 @@ $(function () {
         canvas.height = currentImageObj.height;
         ctx.drawImage(currentImageObj, 0, 0);
 
+        // Render Diagnostics Bar
+        const diag = res.diagnostics || {};
+        const tb = diag.timing_breakdown || {};
+
+        $("#diag-bundle").text(`Bundle: ${diag.bundle_name || "active-v1"}`);
+        $("#diag-model-id").text(`Model: ${diag.model_id || "-"}`);
+
+        if (diag.pipeline_mode === "neural_full_pipeline") {
+            $("#diag-pipeline-mode").removeClass("bg-warning text-dark").addClass("bg-success text-white").text("管線: 神經網路端到端 (PlateReader)");
+            $("#diag-locator").removeClass("bg-warning text-dark").addClass("bg-primary text-white").text(`定位: ${diag.locator_type}`);
+        } else {
+            $("#diag-pipeline-mode").removeClass("bg-success text-white").addClass("bg-warning text-dark").text("管線: 混合啟發式 (OpenCV輪廓+ONNX)");
+            $("#diag-locator").removeClass("bg-primary text-white").addClass("bg-secondary text-white").text("定位: OpenCV 輪廓啟發式 (無神經網絡 Detector)");
+        }
+
+        $("#time-locator").text(tb.locator_ms !== undefined ? tb.locator_ms : 0);
+        $("#time-rect").text(tb.rectifier_ms !== undefined ? tb.rectifier_ms : 0);
+        $("#time-onnx").text(tb.onnx_inference_ms !== undefined ? tb.onnx_inference_ms : 0);
+        $("#time-ctc").text(tb.ctc_decoding_ms !== undefined ? tb.ctc_decoding_ms : 0);
+        $("#time-total").text(res.latency_ms || tb.total_ms || 0);
+        $("#infer-diagnostic-bar").fadeIn();
+
         const $list = $("#table-infer-list tbody");
         $list.empty();
+        $("#badge-det-count").text(`${(res.detections || []).length} 物件`);
 
         if (!res.detections || res.detections.length === 0) {
-            $list.append("<tr><td colspan='5' class='text-center text-muted'>未偵測到車牌</td></tr>");
+            $list.append("<tr><td colspan='6' class='text-center text-muted py-4'>未偵測到車牌（若為全景照片，傳統輪廓啟發式可能受複雜背景/陰影干擾）</td></tr>");
+            setMascotLine("唔...這張照片沒有找到車牌，可能是背景光影反光或角度較大，傳統輪廓沒有抓住車牌區域！");
             return;
         }
 
@@ -935,19 +1025,54 @@ $(function () {
             ctx.fillStyle = "#ffffff";
             ctx.fillText(det.plate_text, tagX + 8, tagY - 3);
 
+            // Crop thumbnail
+            const cropHtml = det.crop_base64
+                ? `<img src="${det.crop_base64}" class="crop-inspect-btn rounded border shadow-sm" style="max-height: 38px; max-width: 90px; cursor: zoom-in;" title="點擊檢視送審裁切圖" data-crop="${det.crop_base64}" data-plate="${det.plate_text}" data-raw="${det.raw_greedy_text || ''}" data-rule="${det.rule_id || ''}" data-conf="${det.confidence}%">`
+                : `<span class="text-muted small">無裁切</span>`;
+
+            // Stage timing tags
+            const timings = det.timings || {};
+            const timingText = `<div class="small text-muted font-monospace" style="font-size: 11px;">推論: ${timings.onnx_ms || 0}ms<br>解碼: ${timings.ctc_ms || 0}ms</div>`;
+
             // Add row to table
             const row = `<tr>
                 <td>${idx + 1}</td>
-                <td><span class="badge-plate">${det.plate_text}</span></td>
-                <td>${det.plate_type || "一般號牌"}</td>
-                <td><span class="badge bg-success">${det.confidence}%</span></td>
-                <td>${res.latency_ms} ms</td>
+                <td>${cropHtml}</td>
+                <td>
+                    <span class="badge-plate">${det.plate_text}</span>
+                    <div class="text-muted" style="font-size: 11px;">${det.plate_type || "一般號牌"}</div>
+                </td>
+                <td><code class="text-dark bg-light px-1 border rounded">${det.raw_greedy_text || det.canonical || "-"}</code></td>
+                <td>
+                    <span class="badge bg-success">${det.confidence}%</span>
+                    <div class="text-muted" style="font-size: 10px;">${det.rule_id || ""}</div>
+                </td>
+                <td>${timingText}</td>
             </tr>`;
             $list.append(row);
         });
 
-        setMascotLine(`辨識成功！發現車牌【${res.detections[0].plate_text}】，耗時僅 ${res.latency_ms}ms！🎯`);
+        setMascotLine(`辨識成功！發現車牌【${res.detections[0].plate_text}】，總耗時 ${res.latency_ms}ms（含解碼）！🎯`);
     }
+
+    $(document).on("click", ".crop-inspect-btn", function () {
+        const crop = $(this).data("crop");
+        const plate = $(this).data("plate");
+        const raw = $(this).data("raw");
+        const rule = $(this).data("rule");
+        const conf = $(this).data("conf");
+
+        $("#modal-crop-img").attr("src", crop);
+        $("#modal-crop-details").html(`
+            <div><strong>車牌預測：</strong> <span class="badge-plate">${plate}</span></div>
+            <div><strong>Greedy 原文：</strong> <code>${raw || "無"}</code></div>
+            <div><strong>約束規則：</strong> <code>${rule || "無"}</code></div>
+            <div><strong>信心度：</strong> ${conf}</div>
+            <div class="mt-2 text-muted" style="font-size: 11px;">說明：上方圖像是推論引擎實際送入 ONNX Recognizer 前進行擺正或裁切之真實影像。</div>
+        `);
+        const modal = new bootstrap.Modal(document.getElementById("modal-crop-inspect"));
+        modal.show();
+    });
 
     // Dropzone Event
     const $drop = $("#drop-zone");

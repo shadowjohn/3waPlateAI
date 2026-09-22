@@ -210,3 +210,24 @@ This file is an append-only record of important implementation decisions, local 
 - The chart now puts `GPU 運算 (%)` on the primary 0-100% axis and retains VRAM GB as a secondary contextual series. This makes short CUDA workloads visible even when their small VRAM allocation is visually flat on a 16 GB scale.
 - RED/GREEN evidence: a Web API contract first failed because the utilization fields were absent, then passed with an `nvidia-smi` fixture. `node --check web/js/app.js` passed; a live local call reported RTX 5060 Ti with `metrics_source: nvidia-smi`; the full suite passed **352 tests in 129.63s** (the same 25 existing dependency/Torch warnings).
 - Still unverified: the currently user-operated server must be restarted (default launcher has reload disabled) and the revised chart has not yet been observed during a fresh GPU training run. No model, dataset, active bundle, IIS, or production service was changed.
+
+## 2026-09-22 - Real-photo Web recognition diagnosis
+
+- The user requested a recommendation between immediate image-processing changes and detector training after two motorcycle-photo failures. Inspection and local diagnostic inference only were performed; existing uncommitted Web changes and local images were preserved.
+- The current `active-v1` manifest declares only `crop-recognition`. All three locally present bundle manifests are recognizer-only. The Web predictor calls nonexistent `PlateReader.load` and `read_image` methods and refers to `detection.box`/`polygon` rather than the actual `PlateReader(bundle_dir).read`, `bbox_xyxy`, and `corners_xy` contract. Loader exceptions are swallowed. Fresh local import confirmed `reader is None` and an active recognizer session, leaving contour-based candidate extraction in use.
+- The active report's validation accuracy is 100% over 500 generated crops in `out/val-default`, using the same configured synthetic template/font family; this is not measured real-photo or full-pipeline accuracy. Historical 99.8% epoch values likewise do not establish real-image performance.
+- On the first supplied screenshot's 480x480 photo region, the current locator emitted one unrelated box and missed the visible `MDX-9717` plate. Manually specifying its visible four corners and applying the existing rectifier produced `MDX-771`; a diagnostic grayscale CLAHE variant (`clipLimit=2`, 8x8 tiles) produced `MDX-971`. Neither recovered the full plate. These results indicate recognizer coverage also needs investigation after localization is corrected.
+- Single local diagnostic timings were 5.3 ms for candidate extraction, 1.88-4.42 ms for recognizer preprocessing/inference, and 836-874 ms for constrained decoding per crop. These are screenshot-region measurements, not the original phone-photo request or a repeatable latency benchmark; resizing alone cannot be assumed to deliver a 0.2-0.3 second end-to-end response.
+- Recommended next sequence, not implemented by this diagnosis: repair and expose the Web/Reader/bundle integration; establish separate real-image localization, manually corrected-crop OCR, and end-to-end baselines; improve detector and recognizer coverage using properly separated real data; evaluate downsampled localization with original-resolution crops, decoding optimization, and optional CLAHE against that baseline. No model was retrained/activated and no live service was restarted.
+
+## 2026-09-22 - Step 1: Web and PlateReader interface contract repair & diagnostic transparency
+
+- Repaired Web predictor (`src/plateai_web/predictor.py`) alignment with `PlateReader(bundle_dir).read(image_rgb)`:
+  - Corrected manifest check to require both `crop-recognition` and `plate-detection` alongside the `detector` component before attempting full-pipeline reader execution.
+  - Aligned coordinate extraction to `detection.bbox_xyxy` and `detection.corners_xy`.
+  - When the bundle is recognizer-only, honestly reports `pipeline_mode: "hybrid_heuristic"`, `locator_type: "opencv_contour_v1"`, and `detector_available: false`.
+- Exposed granular latency breakdown (`locator_ms`, `rectifier_ms`, `onnx_inference_ms`, `ctc_decoding_ms`, and `total_ms`) and sent JPEG data URLs of exact rectified crops (`crop_base64`) along with `raw_greedy_text` in API responses.
+- Implemented `POST /api/model/activate` in `src/plateai_web/app.py` allowing one-click promotion of trained bundles to `active-v1` with in-memory predictor hot-reloading.
+- Enhanced Web Studio UI (`web/index.html`, `web/js/app.js`, `web/css/app.css`) with `#infer-diagnostic-bar`, crop preview thumbnail buttons opening `#modal-crop-inspect`, greedy text display, timing tags, and mascot one-click activation button.
+- Verification: Web API tests expanded in `tests/test_web_api.py` (9 passed); full regression test suite passed (353 passed in 175.47s); live server restarted with `--dev-reload` on port 1688 and verified via API calls.
+

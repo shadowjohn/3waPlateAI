@@ -448,6 +448,61 @@ def get_task_info(task_id: str, store: TrainingStore = Depends(get_training_stor
     raise HTTPException(status_code=404, detail="Task not found")
 
 
+class ActivateModelRequest(BaseModel):
+    bundle_name: str | None = None
+    task_id: str | None = None
+
+
+@app.post("/api/model/activate")
+def activate_model(req: ActivateModelRequest | None = None):
+    bundles_root = ROOT / "models" / "bundles"
+    active_dir = bundles_root / "active-v1"
+
+    target_bundle_dir: Path | None = None
+    if req and req.bundle_name:
+        name = Path(req.bundle_name).name
+        target_bundle_dir = bundles_root / name
+    elif req and req.task_id:
+        target_bundle_dir = bundles_root / f"train-{req.task_id}"
+    else:
+        train_bundles = sorted(
+            [d for d in bundles_root.glob("train-*") if d.is_dir()],
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        if train_bundles:
+            target_bundle_dir = train_bundles[0]
+
+    if target_bundle_dir is None or not target_bundle_dir.exists():
+        raise HTTPException(status_code=404, detail="找不到可啟用的模型 Bundle 目錄")
+
+    onnx_file = target_bundle_dir / "recognizer.onnx"
+    manifest_file = target_bundle_dir / "manifest.json"
+    if not onnx_file.exists() or not manifest_file.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bundle 目錄 {target_bundle_dir.name} 缺少必要模型檔案 (recognizer.onnx 或 manifest.json)",
+        )
+
+    active_dir.mkdir(parents=True, exist_ok=True)
+    for item in target_bundle_dir.iterdir():
+        if item.is_file():
+            shutil.copy2(item, active_dir / item.name)
+
+    # Reload predictor in memory
+    try:
+        predictor._load_active_model()
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "message": f"已成功啟用【{target_bundle_dir.name}】為現役模型 (active-v1)！",
+        "bundle": target_bundle_dir.name,
+        "bundle_path": str(target_bundle_dir),
+    }
+
+
 class PredictBase64Request(BaseModel):
     image_base64: str
 

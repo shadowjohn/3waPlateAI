@@ -120,7 +120,75 @@ def test_predict_fixture_image(web_client: TestClient):
     with fixture_png.open("rb") as stream:
         response = web_client.post("/api/predict", files={"file": ("plate.png", stream, "image/png")})
     assert response.status_code == 200
-    assert "detections" in response.json()
+    data = response.json()
+    assert "detections" in data
+    assert "diagnostics" in data
+    diag = data["diagnostics"]
+    assert diag["pipeline_mode"] in ("hybrid_heuristic", "neural_full_pipeline")
+    assert "timing_breakdown" in diag
+    tb = diag["timing_breakdown"]
+    for key in ("locator_ms", "rectifier_ms", "onnx_inference_ms", "ctc_decoding_ms", "total_ms"):
+        assert key in tb
+
+
+def test_predict_plate_reader_contract_alignment(monkeypatch: pytest.MonkeyPatch):
+    import numpy as np
+    from plateai_web.predictor import predictor
+    from plateai_reader.runtime import ReaderResult, ReaderTiming, PlateRead, DecodedPlate
+    from plateai_shared.detection import PlateDetection
+
+    fake_detection = PlateDetection(
+        bbox_xyxy=np.array([10.0, 20.0, 100.0, 60.0], dtype=np.float32),
+        confidence=0.98,
+        corners_xy=np.array([[10.0, 20.0], [100.0, 20.0], [100.0, 60.0], [10.0, 60.0]], dtype=np.float32),
+    )
+    fake_decoded = DecodedPlate(
+        canonical="ABC5678",
+        display="ABC-5678",
+        rule_id="new-style-lll-dddd",
+        plate_type="standard",
+        log_probability=-0.05,
+    )
+    fake_read = PlateRead(detection=fake_detection, decoded=fake_decoded)
+    fake_timing = ReaderTiming(
+        detector_ms=12.5,
+        rectifier_ms=1.2,
+        recognizer_ms=3.4,
+        retained_detection_count=1,
+        rectified_plate_count=1,
+        recognition_batch_sizes=(1,),
+    )
+    fake_result = ReaderResult(
+        plates=(fake_read,),
+        rejections=(),
+        providers=("CPUExecutionProvider",),
+        timing=fake_timing,
+    )
+
+    class FakePlateReader:
+        def read(self, img_rgb):
+            return fake_result
+
+    monkeypatch.setattr(predictor, "reader", FakePlateReader())
+    monkeypatch.setattr(predictor, "_load_active_model", lambda: None)
+    
+    # Run prediction on a dummy white 100x200 image
+    import cv2
+    img = np.full((100, 200, 3), 255, dtype=np.uint8)
+    _, enc = cv2.imencode(".png", img)
+    res = predictor.predict_image(enc.tobytes())
+
+    assert res["count"] == 1
+    assert res["diagnostics"]["pipeline_mode"] == "neural_full_pipeline"
+    assert res["diagnostics"]["locator_type"] == "plate_pose_net"
+    assert res["diagnostics"]["detector_available"] is True
+    assert res["diagnostics"]["timing_breakdown"]["locator_ms"] == 12.5
+    det = res["detections"][0]
+    assert det["plate_text"] == "ABC-5678"
+    assert det["canonical"] == "ABC5678"
+    assert det["box"] == [10, 20, 100, 60]
+    assert len(det["polygon"]) == 4
+    assert det["crop_base64"].startswith("data:image/jpeg;base64,")
 
 
 def test_release_build_task_uses_a_stubbed_runner(web_client: TestClient, monkeypatch: pytest.MonkeyPatch):
