@@ -10,10 +10,18 @@ def package_data_root() -> Path:
     return Path(sysconfig.get_path("data")) / "share" / "3wa-plate-ai"
 
 
-def workspace_root(cwd: Path | None = None) -> Path:
-    """Use the checkout while developing, otherwise keep mutable state in CWD."""
+def source_checkout_root() -> Path | None:
+    """Return the source checkout when running editable code, if any."""
     source_root = Path(__file__).resolve().parents[2]
     if (source_root / "pyproject.toml").is_file():
+        return source_root
+    return None
+
+
+def workspace_root(cwd: Path | None = None) -> Path:
+    """Use the checkout while developing, otherwise keep mutable state in CWD."""
+    source_root = source_checkout_root()
+    if source_root is not None:
         return source_root
     return (Path.cwd() if cwd is None else Path(cwd)).resolve()
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from plateai_trainer.training.control import TrainingProgress
-from .paths import package_data_root
+from .paths import package_data_root, source_checkout_root
 
 
 _PACKAGED_DATA_ROOT = package_data_root()
@@ -45,7 +45,12 @@ def _resolve_config_path(root: Path, relative_path: str, *, field: str) -> Path:
     path = Path(relative_path)
     if path.is_absolute() or any(part == ".." for part in path.parts):
         raise ValueError(f"{field} must reference a bundled configuration file")
-    for base in (root, _PACKAGED_DATA_ROOT):
+    bases = [root]
+    checkout_root = source_checkout_root()
+    if checkout_root is not None:
+        bases.append(checkout_root)
+    bases.append(_PACKAGED_DATA_ROOT)
+    for base in bases:
         candidate = (base / path).resolve()
         try:
             candidate.relative_to(base.resolve())
