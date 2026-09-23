@@ -32,7 +32,8 @@ data for local experiments only; neither data nor derived weights may be shared.
    coordinates, decoded duplicate exclusion, CPU/CUDA training and report provenance.
 2. Train from scratch, select checkpoint on validation only, then freeze selection
    before independent test evaluation. Do not tune on the user's evaluation photos.
-3. Report bbox AP50, operating precision/recall, semantic corner errors, complete
+3. Select checkpoints by validation complete-quad recall, then complete-quad
+   precision, bbox AP50, and minimum validation loss. Report bbox AP50, operating precision/recall, semantic corner errors, complete
    quad precision/recall (all four <=8px at 640), NMS count and rectifier acceptance.
    Compare old and new weights on identical retained test data.
 4. Whole-plate crop evidence for user photos, independently of OCR. Fewer false

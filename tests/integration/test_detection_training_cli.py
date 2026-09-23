@@ -19,6 +19,23 @@ from plateai_trainer.detection.train_cli import main
 from tests.unit.test_detection_dataset import make_dataset
 
 
+def test_checkpoint_selection_prefers_complete_quad_recall_over_bbox_ap50():
+    geometry_better = {
+        "complete_quad_recall": 0.60,
+        "complete_quad_precision": 0.70,
+        "bbox_ap50": 0.94,
+        "loss": 0.80,
+    }
+    bbox_better = {
+        "complete_quad_recall": 0.40,
+        "complete_quad_precision": 0.80,
+        "bbox_ap50": 0.97,
+        "loss": 0.70,
+    }
+
+    assert engine._checkpoint_selection_key(geometry_better) > engine._checkpoint_selection_key(bbox_better)
+
+
 def test_training_is_deterministic_publishes_reloadable_best_and_finite_report(tmp_path):
     train = make_dataset(tmp_path)
     validation = make_dataset(tmp_path, "validation", color=21, seed=8)

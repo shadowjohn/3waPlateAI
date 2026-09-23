@@ -34,7 +34,8 @@ def assign_detection_targets(instances: Sequence[CompositeInstance]) -> Detectio
 
     Centre cells use floor(cx/stride), floor(cy/stride). Both bbox bounds
     are inclusive. The short side chooses <64, [64,128), or >=128 pixels.
-    Smaller box area wins conflicts, followed by original instance index.
+    Smaller box area wins conflicts, followed by original instance index. P4/P5
+    instances also supervise the next finer level for corner geometry.
     Inputs must already have been mapped to letterbox coordinates.
     """
     boxes = np.asarray([item.bbox_xyxy for item in instances], dtype=np.float32).reshape(-1, 4)
@@ -52,18 +53,20 @@ def assign_detection_targets(instances: Sequence[CompositeInstance]) -> Detectio
     for instance_index in sorted(range(len(instances)), key=lambda index: (float(areas[index]), index)):
         box = boxes[instance_index]
         short_side = min(widths_heights[instance_index])
-        level = 0 if short_side < 64 else 1 if short_side < 128 else 2
-        stride, offset = ((8, 0), (16, 6400), (32, 8000))[level]
-        grid_size = 640 // stride
-        cx, cy = (box[:2] + box[2:]) / 2
-        centre_x, centre_y = int(cx // stride), int(cy // stride)
-        for y in range(max(0, centre_y - 1), min(grid_size, centre_y + 2)):
-            for x in range(max(0, centre_x - 1), min(grid_size, centre_x + 2)):
-                px, py = (x + 0.5) * stride, (y + 0.5) * stride
-                cell = offset + y * grid_size + x
-                if box[0] <= px <= box[2] and box[1] <= py <= box[3] and matched[cell] == -1:
-                    matched[cell] = instance_index
-                    levels[cell] = level
+        canonical_level = 0 if short_side < 64 else 1 if short_side < 128 else 2
+        assigned_levels = (canonical_level,) if canonical_level == 0 else (canonical_level - 1, canonical_level)
+        for level in assigned_levels:
+            stride, offset = ((8, 0), (16, 6400), (32, 8000))[level]
+            grid_size = 640 // stride
+            cx, cy = (box[:2] + box[2:]) / 2
+            centre_x, centre_y = int(cx // stride), int(cy // stride)
+            for y in range(max(0, centre_y - 1), min(grid_size, centre_y + 2)):
+                for x in range(max(0, centre_x - 1), min(grid_size, centre_x + 2)):
+                    px, py = (x + 0.5) * stride, (y + 0.5) * stride
+                    cell = offset + y * grid_size + x
+                    if box[0] <= px <= box[2] and box[1] <= py <= box[3] and matched[cell] == -1:
+                        matched[cell] = instance_index
+                        levels[cell] = level
     positives = np.flatnonzero(matched >= 0)
     owners = matched[positives]
     return DetectionTargets(matched, positives, levels[positives], boxes[owners], corners[owners])

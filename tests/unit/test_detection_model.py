@@ -75,20 +75,24 @@ def test_model_rejects_inputs_outside_fixed_float32_rgb_contract(shape, dtype):
         PlatePoseNet()(torch.zeros(shape, dtype=dtype))
 
 
-@pytest.mark.parametrize("short_side,level", [(63., 0), (64., 1), (127., 1), (127.5, 1), (128., 2)])
-def test_assigner_uses_exact_scale_boundaries(short_side, level):
+@pytest.mark.parametrize(
+    "short_side,levels",
+    [(63., [0]), (64., [0, 1]), (127., [0, 1]), (127.5, [0, 1]), (128., [1, 2])],
+)
+def test_assigner_uses_canonical_and_next_finer_scale_boundaries(short_side, levels):
     targets = assign_detection_targets([instance((200., 200., 400., 200. + short_side))])
-    assert np.unique(targets.positive_level_indices).tolist() == [level]
+    assert np.unique(targets.positive_level_indices).tolist() == levels
 
 
 def test_assigner_selects_all_nine_neighbours_and_preserves_semantic_order():
     plate = instance(corners=[[202., 204.], [279., 200.], [280., 276.], [200., 280.]])
     targets = assign_detection_targets([plate])
     # P4 centre cell (15,15), row-major offset 6400, width 40.
-    assert targets.positive_indices.tolist() == [6974, 6975, 6976, 7014, 7015, 7016, 7054, 7055, 7056]
+    p4 = targets.positive_indices[targets.positive_level_indices == 1]
+    assert p4.tolist() == [6974, 6975, 6976, 7014, 7015, 7016, 7054, 7055, 7056]
     assert targets.matched_instance_indices.shape == (8400,)
-    assert np.count_nonzero(targets.matched_instance_indices == 0) == 9
-    np.testing.assert_array_equal(targets.corners_xy, np.repeat(plate.corners_xy[None], 9, axis=0))
+    assert np.count_nonzero(targets.matched_instance_indices == 0) == 18
+    np.testing.assert_array_equal(targets.corners_xy, np.repeat(plate.corners_xy[None], 18, axis=0))
 
 
 def test_assigner_filters_neighbours_outside_bbox_and_clips_grid_edges():
@@ -117,11 +121,12 @@ def test_loss_uses_all_candidate_focal_objectness_and_zero_perfect_geometry_loss
     targets = assign_detection_targets([instance()])
     result = detection_loss(perfect_predictions(targets), targets)
     # Binary focal BCE: gamma=2.0, positive alpha=0.25, negative alpha=0.75.
-    expected = -(9 * 0.25 * 0.75**2 * math.log(0.25) + 8391 * 0.75 * 0.25**2 * math.log(0.75)) / 9
+    expected = -(18 * 0.25 * 0.75**2 * math.log(0.25) + 8382 * 0.75 * 0.25**2 * math.log(0.75)) / 18
     assert float(result.objectness) == pytest.approx(expected)
     assert float(result.box_ciou) == pytest.approx(0, abs=1e-6)
     assert float(result.corner_smooth_l1) == 0
-    torch.testing.assert_close(result.total, result.objectness + 5 * result.box_ciou + 2 * result.corner_smooth_l1)
+    assert float(result.corner_absolute_smooth_l1) == 0
+    torch.testing.assert_close(result.total, result.objectness + 5 * result.box_ciou + 2 * result.corner_smooth_l1 + 2 * result.corner_absolute_smooth_l1)
 
 
 @pytest.mark.parametrize("positive_p,negative_p", [(0.9, 0.1), (0.1, 0.9), (0.9, 0.9), (0.1, 0.1)])
@@ -136,13 +141,13 @@ def test_focal_objectness_easy_hard_values_and_gradients(positive_p, negative_p)
     # production helpers or reuse its tensor weighting computation.
     positive_loss = -0.25 * (1 - positive_p)**2 * math.log(positive_p)
     negative_loss = -0.75 * negative_p**2 * math.log(1 - negative_p)
-    assert float(result.objectness.detach()) == pytest.approx((9 * positive_loss + 8391 * negative_loss) / 9)
+    assert float(result.objectness.detach()) == pytest.approx((18 * positive_loss + 8382 * negative_loss) / 18)
     result.objectness.backward()
     assert torch.isfinite(predictions.grad).all()
     positive_derivative = 0.25 * (2 * (1 - positive_p) * math.log(positive_p) - (1 - positive_p)**2 / positive_p)
     negative_derivative = 0.75 * (-2 * negative_p * math.log(1 - negative_p) + negative_p**2 / (1 - negative_p))
-    assert float(predictions.grad[0, 7015, 4] * 9) == pytest.approx(positive_derivative)
-    assert float(predictions.grad[0, 0, 4] * 9) == pytest.approx(negative_derivative)
+    assert float(predictions.grad[0, 7015, 4] * 18) == pytest.approx(positive_derivative)
+    assert float(predictions.grad[0, 0, 4] * 18) == pytest.approx(negative_derivative)
 
 
 @pytest.mark.parametrize("positive_p,negative_p", [(0., 1.), (1., 0.)])
@@ -165,7 +170,23 @@ def test_corner_loss_normalizes_xy_by_bbox_dimensions_and_ignores_negatives():
     predictions[0, 0, 5:] = 1e6
     result = detection_loss(predictions, targets)
     assert float(result.corner_smooth_l1) == pytest.approx(0.125)
-    torch.testing.assert_close(result.total, result.objectness + 5 * result.box_ciou + 2 * result.corner_smooth_l1)
+    assert float(result.corner_absolute_smooth_l1) == pytest.approx(7.0)
+    torch.testing.assert_close(result.total, result.objectness + 5 * result.box_ciou + 2 * result.corner_smooth_l1 + 2 * result.corner_absolute_smooth_l1)
+
+
+def test_corner_loss_penalizes_equal_relative_error_more_for_large_plates():
+    small_targets = assign_detection_targets([instance((200., 200., 232., 232.))])
+    large_targets = assign_detection_targets([instance((200., 200., 360., 360.))])
+    small_predictions = perfect_predictions(small_targets)
+    large_predictions = perfect_predictions(large_targets)
+    small_predictions[0, small_targets.positive_indices, 5:] += 4.0
+    large_predictions[0, large_targets.positive_indices, 5:] += 20.0
+
+    small = detection_loss(small_predictions, small_targets)
+    large = detection_loss(large_predictions, large_targets)
+
+    assert float(small.corner_smooth_l1) == pytest.approx(float(large.corner_smooth_l1))
+    assert float(large.corner_absolute_smooth_l1) > float(small.corner_absolute_smooth_l1)
 
 
 def test_ciou_includes_overlap_and_center_distance_penalty():
@@ -193,6 +214,7 @@ def test_empty_targets_produce_finite_differentiable_objectness_only_loss():
     result.total.backward()
     assert float(result.box_ciou.detach()) == 0
     assert float(result.corner_smooth_l1.detach()) == 0
+    assert float(result.corner_absolute_smooth_l1.detach()) == 0
     assert torch.isfinite(predictions.grad).all()
     assert predictions.grad[..., 4].abs().sum() > 0
 
@@ -204,6 +226,7 @@ def test_batched_loss_matches_each_images_targets_and_rejects_batch_mismatch():
     result = detection_loss(predictions, [first, second])
     assert float(result.box_ciou) == pytest.approx(0, abs=1e-6)
     assert float(result.corner_smooth_l1) == 0
+    assert float(result.corner_absolute_smooth_l1) == 0
     with pytest.raises(ValueError, match="batch"):
         detection_loss(predictions, first)
 

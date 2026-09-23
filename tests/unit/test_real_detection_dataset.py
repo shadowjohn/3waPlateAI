@@ -32,7 +32,13 @@ def test_real_adapter_maps_whole_plates_and_all_corners(tmp_path):
     np.testing.assert_allclose(sample.instances[0].bbox_xyxy, [80, 240, 240, 304])
     np.testing.assert_allclose(sample.instances[1].corners_xy,
         [[360, 336], [560, 336], [560, 416], [360, 416]])
-    assert len(sample.targets.positive_indices) == 18
+    # Both fixtures have canonical P4 short sides, so each contributes its
+    # nine P4 cells plus the next-finer P3 cells.
+    assert len(sample.targets.positive_indices) == 36
+    np.testing.assert_array_equal(
+        np.bincount(sample.targets.positive_level_indices, minlength=3),
+        [18, 18, 0],
+    )
     assert data.provenance['license_reviewed'] is False
     assert data.provenance['training_data'] == 'real'
 

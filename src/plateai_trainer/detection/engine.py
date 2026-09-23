@@ -186,6 +186,16 @@ def _finite_loss(loss):
     return value
 
 
+def _checkpoint_selection_key(metrics):
+    """Prefer complete semantic quads before detection-box quality."""
+    return (
+        metrics["complete_quad_recall"],
+        metrics["complete_quad_precision"],
+        metrics["bbox_ap50"],
+        -metrics["loss"],
+    )
+
+
 def _step(model, optimizer, images, samples):
     model.train()
     optimizer.zero_grad(set_to_none=True)
@@ -318,7 +328,7 @@ def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
             history.append({"epoch": epoch, "train_loss": train_loss, "validation_loss": metrics["loss"],
                             **{name: metrics[name] for name in ('bbox_ap50', 'complete_quad_precision', 'complete_quad_recall', 'corner_error_640px', 'nms_predictions')}})
             print(json.dumps(history[-1], allow_nan=False), flush=True)
-            key = (metrics["bbox_ap50"], -metrics["loss"])
+            key = _checkpoint_selection_key(metrics)
             if best_key is None or key > best_key:
                 best_key, best_metrics, best_epoch = key, metrics, epoch
                 torch.save({"schema_version": 1, "architecture": "PlatePoseNet", "model_state_dict": model.state_dict(),
@@ -331,7 +341,7 @@ def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
         validation.verify_unchanged()
         report = {"schema_version": 1, "train": {"loss": train_loss, "samples": len(train)},
                   "validation": best_metrics, "best_epoch": best_epoch,
-                  "checkpoint_selection": "maximum validation bbox_ap50; minimum validation loss breaks ties; earliest exact tie",
+                  "checkpoint_selection": "maximum validation complete_quad_recall, then complete_quad_precision, bbox_ap50, minimum validation loss; earliest exact tie",
                   "epochs": history, "overfit": overfit, "metric_config": dict(_METRIC_CONFIG),
                   "input_hashes": inputs, "config": config_values, "config_sha256": config_hash,
                   "runtime_provenance": runtime,

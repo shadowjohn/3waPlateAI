@@ -111,18 +111,22 @@ transform, source-M1 provenance, and background identity.
 
 The native dataset applies the exact 640 affine to image, bbox, and all four
 corners. Using the letterbox-pixel shortest bbox side, the scale-aware
-anchor-free assigner selects P3 for `<64`, P4 for `64–127`, and P5 for `>=128`.
-Positive cells are inside the GT bbox and at Chebyshev grid distance at most one
-from its centre cell. On overlap, the smaller-area GT wins, then lower instance
-index breaks ties. Positive loss is:
+anchor-free assigner selects canonical P3 for `<64`, P4 for `64–127`, and P5
+for `>=128`; P4/P5 instances additionally supervise the immediately finer
+level (P3/P4 respectively) for corner geometry. Positive cells are inside the
+GT bbox and at Chebyshev grid distance at most one from its centre cell. On
+overlap, the smaller-area GT wins, then lower instance index breaks ties.
+Positive loss is:
 
 ```text
 L = 1.0 * focal_bce(objectness) + 5.0 * ciou(bbox)
     + 2.0 * smooth_l1(normalized_corners)
+    + 2.0 * smooth_l1((predicted_corners - target_corners) / 8 px)
 ```
 
 Corner residuals are normalized independently by matched bbox width and height;
-corner loss is positive-only. GT order is always left-top, right-top,
+the additional absolute term is normalized by the 8 px complete-quad acceptance
+tolerance; both corner terms are positive-only. GT order is always left-top, right-top,
 right-bottom, left-bottom. Run metadata captures seed, dependency lock,
 model/data/config hashes, metrics, and checkpoint compatibility. A deterministic
 small-data smoke proves finite forward/loss/gradients, checkpoint read/write,

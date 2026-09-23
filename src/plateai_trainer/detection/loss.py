@@ -1,4 +1,4 @@
-"""Objectness focal BCE + 5 CIoU + 2 normalized semantic-corner Smooth L1."""
+"""Objectness focal BCE + 5 CIoU + relative and absolute corner Smooth L1."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ class DetectorLoss:
     objectness: torch.Tensor
     box_ciou: torch.Tensor
     corner_smooth_l1: torch.Tensor
+    corner_absolute_smooth_l1: torch.Tensor
 
 
 def _ciou_loss(predicted: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
@@ -82,8 +83,11 @@ def detection_loss(
         scale = (matched_boxes[:, 2:] - matched_boxes[:, :2]).unsqueeze(1)
         residual = (positive_predictions[:, 5:].reshape(-1, 4, 2) - matched_corners) / scale
         corner_smooth_l1 = F.smooth_l1_loss(residual, torch.zeros_like(residual))
+        absolute_residual = (positive_predictions[:, 5:].reshape(-1, 4, 2) - matched_corners) / 8.0
+        corner_absolute_smooth_l1 = F.smooth_l1_loss(absolute_residual, torch.zeros_like(absolute_residual))
     else:
         box_ciou = positive_predictions[:, :4].sum() * 0
         corner_smooth_l1 = positive_predictions[:, 5:].sum() * 0
-    total = objectness + 5.0 * box_ciou + 2.0 * corner_smooth_l1
-    return DetectorLoss(total, objectness, box_ciou, corner_smooth_l1)
+        corner_absolute_smooth_l1 = positive_predictions[:, 5:].sum() * 0
+    total = objectness + 5.0 * box_ciou + 2.0 * corner_smooth_l1 + 2.0 * corner_absolute_smooth_l1
+    return DetectorLoss(total, objectness, box_ciou, corner_smooth_l1, corner_absolute_smooth_l1)
