@@ -248,3 +248,23 @@ all-four-corner quality separately, and inspect actual top-confidence crops. A
 falling loss, fewer candidates, successful ONNX export, or high crop-only OCR
 accuracy does not establish correct full-scene localization. Evaluation never
 activates a candidate model automatically.
+
+### Detection Debug Mode
+
+For a bbox-only check of one native checkpoint, run:
+
+```powershell
+.\.venv\Scripts\python.exe tools\debug_detector.py `
+  --image path\to\input.jpg `
+  --checkpoint runs\detector-real-v2-geometry\best.pt `
+  --output out\detector-debug.jpg `
+  --device cuda
+```
+
+This runs the existing 640x640 letterbox and detector NMS contracts, maps the
+retained bboxes back to the original image, and saves only the boxes and scores.
+Its JSON output includes source/resized/padding/model-input sizes plus every
+retained bbox's source-space and raw model-input pixel dimensions.
+It deliberately does not run corner rectification, OCR, export, activation, or
+the frozen test evaluator. The output refuses overwrite. Use
+`--score-threshold` and `--nms-iou` only for local diagnostics.
