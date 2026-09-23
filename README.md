@@ -100,7 +100,14 @@ Web Studio 預設以不啟用 reload 的方式啟動；開發時才明確加上�
 - OCR canonical label 不含裝飾用連字號；顯示字串保留連字號。
 - 每一樣本由 run seed 與 index 推導獨立 seed；在鎖定的 Python 3.11 依賴下，字串、增強參數、metadata 與影像皆可重現。
 - 預設新式自用小客車為白底黑字、`LLL-DDDD`，並排除 `I`、`O`、`4`。
-- 預設字型是以 OFL-1.1 授權隨附的 Noto Sans Mono 視覺近似字型。若要用本專案的台灣車牌專用字型生成訓練資料，請明確指定 `--font taiwan_plate`：
+- 預設字型是以 OFL-1.1 授權隨附的 Noto Sans Mono 視覺近似字型。若要用本機建立的台灣車牌字型生成訓練資料，先執行下列兩個批次檔；產物只會寫入已忽略的 `assets/local/fonts/`，不會進入 Git 或 release package：
+
+  ```powershell
+  .\build_prepare_ttf_env.bat
+  .\build_taiwanplate_ttf.bat
+  ```
+
+  再明確指定 `--font taiwan_plate`：
 
   ```powershell
   .\.venv\Scripts\plateai-generate generate `
@@ -110,7 +117,7 @@ Web Studio 預設以不啟用 reload 的方式啟動；開發時才明確加上�
     --output out\train-taiwan-plate-font
   ```
 
-  每次生成會記錄字型檔名與 SHA-256。`TaiwanPlate-Regular.ttf` 是以專案內的公路局參考資料建立，供本機合成與視覺比較使用；它不表示主管機關以產品形式發布此字型，或已授予衍生材料的一般再散布權。
+  每次生成會記錄字型檔名與 SHA-256。`TaiwanPlate-Regular.ttf` 是以專案內的公路局參考資料建立，僅供本機合成與視覺比較；它不表示主管機關以產品形式發布此字型，或已授予衍生材料的一般再散布權。
 
 - 機車色牌採 `plate_type` 選擇模板，不從任意車牌字串猜測車種。可產生一般重機白底黑字、250–550cc 黃底黑字、550cc 以上紅底白字，以及 50cc 綠底白字：
 

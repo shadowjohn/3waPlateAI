@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 @pytest.fixture
 def web_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     from plateai_web import app as app_module
+    from plateai_web.predictor import PredictorEngine
     from plateai_web.tasks import TaskManager
     from plateai_web.training_store import TrainingStore
 
@@ -24,6 +25,8 @@ def web_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Test
     sample.mkdir(parents=True)
     (sample / "000000.png").write_bytes(b"not-used-by-dataset-listing")
     monkeypatch.setattr(app_module, "ROOT", tmp_path)
+    monkeypatch.setattr(app_module, "predictor", PredictorEngine(root=tmp_path))
+    monkeypatch.setattr(app_module, "_candidate_engine", None)
     monkeypatch.setattr(app_module, "task_manager", TaskManager())
     store = TrainingStore(tmp_path / "runs" / ".web-training")
     app_module.app.dependency_overrides[app_module.get_training_store] = lambda: store

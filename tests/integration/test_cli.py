@@ -60,7 +60,7 @@ def test_default_cli_profile_generates_new_style_private_passenger_crops(tmp_pat
 
 
 def test_cli_rejects_taiwan_plate_alias_without_local_authorization(tmp_path, monkeypatch):
-    monkeypatch.delenv("PLATEAI_LOCAL_FONT_DIR", raising=False)
+    monkeypatch.setenv("PLATEAI_LOCAL_FONT_DIR", str(tmp_path / "missing-fonts"))
     output = tmp_path / "taiwan-plate"
     result = run_cli(
         "generate",

@@ -54,8 +54,10 @@ def test_template_rejects_out_of_bounds_text_box(
     "value",
     ("taiwan_plate", Path("taiwan_plate"), "official", Path("official")),
 )
-def test_taiwan_plate_alias_requires_a_local_authorized_font(monkeypatch, value):
-    monkeypatch.delenv("PLATEAI_LOCAL_FONT_DIR", raising=False)
+def test_taiwan_plate_alias_requires_a_local_authorized_font(
+    monkeypatch, tmp_path, value
+):
+    monkeypatch.setenv("PLATEAI_LOCAL_FONT_DIR", str(tmp_path / "missing-fonts"))
 
     with pytest.raises(FileNotFoundError, match="local Taiwan plate font is missing"):
         resolve_font(value)

@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         import fastapi
         import uvicorn
-        import multipart
+        import python_multipart
     except ImportError:
         print("[提示] 正在自動安裝必要依賴套件 (fastapi, uvicorn, python-multipart)...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "fastapi", "uvicorn", "python-multipart"])

@@ -1,4 +1,4 @@
-"""Build official Taiwan License Plate TrueType Font from Highway Bureau specification."""
+"""Build a local Taiwan plate TrueType font from the checked-in reference images."""
 
 from __future__ import annotations
 
@@ -12,7 +12,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SPEC_DIR = REPOSITORY_ROOT / "assets" / "spec_images"
-OUTPUT_FONT_PATH = REPOSITORY_ROOT / "assets" / "fonts" / "TaiwanPlate-Regular.ttf"
+OUTPUT_FONT_PATH = (
+    REPOSITORY_ROOT / "assets" / "local" / "fonts" / "TaiwanPlate-Regular.ttf"
+)
 VERIFICATION_PATH = REPOSITORY_ROOT / "out" / "user_preview" / "taiwan_plate_font_sheet.png"
 
 GRID_LAYOUT = [

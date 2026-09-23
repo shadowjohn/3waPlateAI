@@ -1,5 +1,6 @@
 .venv/
 .venv-verify/
+.venv-font-build/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -33,3 +34,8 @@ runs/
 benchmarks/local/
 .idea/
 .vscode/
+
+# Locally built or user-supplied fonts are never source or release artifacts.
+assets/fonts/TaiwanPlate-Regular.ttf
+assets/local/fonts/*.ttf
+assets/local/fonts/*.otf

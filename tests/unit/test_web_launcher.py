@@ -40,3 +40,12 @@ def test_tools_launcher_passes_explicit_reload_setting(
     monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: captured.update(kwargs))
     assert module.main(argv) is None
     assert captured["reload"] is expected
+
+
+def test_tools_launcher_checks_the_supported_python_multipart_module() -> None:
+    source = (Path(__file__).resolve().parents[2] / "tools" / "run_server.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "        import python_multipart" in source
+    assert "        import multipart\n" not in source

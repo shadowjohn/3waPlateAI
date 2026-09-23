@@ -1,0 +1,2 @@
+# This profile is an immutable, byte-verified evaluation contract.
+configs/evaluation/m4_5_strict_v1.json text eol=lf
