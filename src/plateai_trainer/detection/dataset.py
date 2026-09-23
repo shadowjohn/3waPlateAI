@@ -70,8 +70,11 @@ class DetectionDataset:
     files need not be available: their recorded identities define split isolation.
     """
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, *, large_object_p3: bool = False):
+        if type(large_object_p3) is not bool:
+            raise DetectionDataError("large_object_p3 must be a boolean")
         self.root = Path(directory).resolve()
+        self.large_object_p3 = large_object_p3
         self._files = {}
         try:
             raw_config = self._read("generation_config.json")
@@ -240,7 +243,7 @@ class DetectionDataset:
             tuple(float(x) for x in map_points_to_letterbox(np.asarray(item["bbox_xyxy"]).reshape(2, 2), transform).ravel()),
             map_points_to_letterbox(item["corners"], transform), item["source_plate"],
         ) for item in record["instances"])
-        targets = assign_detection_targets(instances)
+        targets = assign_detection_targets(instances, large_object_p3=self.large_object_p3)
         return DetectionSample(image, instances, targets, transform)
 
 

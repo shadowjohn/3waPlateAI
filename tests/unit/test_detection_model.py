@@ -84,6 +84,20 @@ def test_assigner_uses_canonical_and_next_finer_scale_boundaries(short_side, lev
     assert np.unique(targets.positive_level_indices).tolist() == levels
 
 
+def test_large_object_p3_experiment_changes_only_large_assignment():
+    medium = instance((200., 200., 400., 327.))
+    large = instance((200., 200., 400., 328.))
+    assert np.unique(assign_detection_targets(
+        [medium], large_object_p3=True
+    ).positive_level_indices).tolist() == [0, 1]
+    assert np.unique(assign_detection_targets(
+        [large], large_object_p3=False
+    ).positive_level_indices).tolist() == [1, 2]
+    assert np.unique(assign_detection_targets(
+        [large], large_object_p3=True
+    ).positive_level_indices).tolist() == [0, 1, 2]
+
+
 def test_assigner_selects_all_nine_neighbours_and_preserves_semantic_order():
     plate = instance(corners=[[202., 204.], [279., 200.], [280., 276.], [200., 280.]])
     targets = assign_detection_targets([plate])

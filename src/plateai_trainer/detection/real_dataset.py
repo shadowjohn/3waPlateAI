@@ -42,8 +42,11 @@ class RealDetectionDataset(DetectionDataset):
     invent a synthetic font, plate text, rendering seed or homography.
     """
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, *, large_object_p3: bool = False):
+        if type(large_object_p3) is not bool:
+            raise DetectionDataError('large_object_p3 must be a boolean')
         self.root = Path(directory).resolve()
+        self.large_object_p3 = large_object_p3
         self._files = {}
         self._images, self._instances = [], []
         identities = []
@@ -112,9 +115,15 @@ class RealDetectionDataset(DetectionDataset):
             tuple(float(x) for x in map_points_to_letterbox(np.asarray(item.bbox_xyxy).reshape(2, 2), transform).ravel()),
             map_points_to_letterbox(item.corners_xy, transform), {},
         ) for item in self._instances[index])
-        return DetectionSample(image, instances, assign_detection_targets(instances), transform)
+        return DetectionSample(
+            image,
+            instances,
+            assign_detection_targets(instances, large_object_p3=self.large_object_p3),
+            transform,
+        )
 
 
-def load_detection_dataset(directory):
+def load_detection_dataset(directory, *, large_object_p3=False):
     directory = Path(directory)
-    return RealDetectionDataset(directory) if (directory / 'dataset.json').exists() else DetectionDataset(directory)
+    dataset_type = RealDetectionDataset if (directory / 'dataset.json').exists() else DetectionDataset
+    return dataset_type(directory, large_object_p3=large_object_p3)

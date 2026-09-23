@@ -88,7 +88,7 @@ def test_evaluation_metrics_score_perfect_duplicate_and_bad_semantic_quads():
     assert metrics["corner_error_640px"] == 40
 
 
-@pytest.mark.parametrize("kwargs", [{"epochs": 0}, {"batch_size": True}, {"learning_rate": float("nan")}, {"seed": -1}, {"device": "bad"}])
+@pytest.mark.parametrize("kwargs", [{"epochs": 0}, {"batch_size": True}, {"learning_rate": float("nan")}, {"seed": -1}, {"device": "bad"}, {"large_object_p3": 1}])
 def test_invalid_config_creates_no_output(tmp_path, kwargs):
     config = DetectorTrainingConfig(tmp_path / "missing", tmp_path / "missing", tmp_path / "run")
     with pytest.raises(DetectionDataError):
@@ -114,6 +114,7 @@ def test_cli_errors_and_installed_help(tmp_path):
     result = subprocess.run([str(executable), "--help"], capture_output=True, text=True)
     assert result.returncode == 0
     assert "--train" in result.stdout
+    assert "--large-object-p3" in result.stdout
 
 
 def test_score_ranked_ap_counts_false_positives_and_empty_matches():

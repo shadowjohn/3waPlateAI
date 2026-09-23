@@ -29,15 +29,20 @@ class DetectionTargets:
     corners_xy: NDArray[np.float32]
 
 
-def assign_detection_targets(instances: Sequence[CompositeInstance]) -> DetectionTargets:
+def assign_detection_targets(
+    instances: Sequence[CompositeInstance], *, large_object_p3: bool = False
+) -> DetectionTargets:
     """Select cell centres inside each box and within one centre-cell step.
 
     Centre cells use floor(cx/stride), floor(cy/stride). Both bbox bounds
     are inclusive. The short side chooses <64, [64,128), or >=128 pixels.
     Smaller box area wins conflicts, followed by original instance index. P4/P5
-    instances also supervise the next finer level for corner geometry.
+    instances also supervise the next finer level for corner geometry. The
+    opt-in experiment adds P3 supervision only to >=128px instances.
     Inputs must already have been mapped to letterbox coordinates.
     """
+    if type(large_object_p3) is not bool:
+        raise ValueError("large_object_p3 must be a boolean")
     boxes = np.asarray([item.bbox_xyxy for item in instances], dtype=np.float32).reshape(-1, 4)
     corners = np.asarray([item.corners_xy for item in instances], dtype=np.float32)
     if not instances:
@@ -54,7 +59,12 @@ def assign_detection_targets(instances: Sequence[CompositeInstance]) -> Detectio
         box = boxes[instance_index]
         short_side = min(widths_heights[instance_index])
         canonical_level = 0 if short_side < 64 else 1 if short_side < 128 else 2
-        assigned_levels = (canonical_level,) if canonical_level == 0 else (canonical_level - 1, canonical_level)
+        if canonical_level == 0:
+            assigned_levels = (0,)
+        elif canonical_level == 2 and large_object_p3:
+            assigned_levels = (0, 1, 2)
+        else:
+            assigned_levels = (canonical_level - 1, canonical_level)
         for level in assigned_levels:
             stride, offset = ((8, 0), (16, 6400), (32, 8000))[level]
             grid_size = 640 // stride

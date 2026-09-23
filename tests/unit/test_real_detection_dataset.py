@@ -43,6 +43,23 @@ def test_real_adapter_maps_whole_plates_and_all_corners(tmp_path):
     assert data.provenance['training_data'] == 'real'
 
 
+def test_real_adapter_opt_in_adds_p3_only_for_large_instances(tmp_path):
+    from plateai_trainer.detection.real_dataset import RealDetectionDataset
+    points = [[[100, 80], [500, 80], [500, 280], [100, 280]]]
+    baseline = RealDetectionDataset(fixture(tmp_path / 'baseline', points=points))[0]
+    experiment = RealDetectionDataset(
+        fixture(tmp_path / 'experiment', points=points), large_object_p3=True
+    )[0]
+    np.testing.assert_array_equal(
+        np.bincount(baseline.targets.positive_level_indices, minlength=3),
+        [0, 9, 9],
+    )
+    np.testing.assert_array_equal(
+        np.bincount(experiment.targets.positive_level_indices, minlength=3),
+        [9, 9, 9],
+    )
+
+
 @pytest.mark.parametrize('points', [
     [[[100, 100], [300, 100], [300, 180], [100, 180]]],
     [[[300, 180], [100, 100], [100, 180], [300, 100]]],

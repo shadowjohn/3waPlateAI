@@ -268,3 +268,82 @@ retained bbox's source-space and raw model-input pixel dimensions.
 It deliberately does not run corner rectification, OCR, export, activation, or
 the frozen test evaluator. The output refuses overwrite. Use
 `--score-threshold` and `--nms-iou` only for local diagnostics.
+
+### Geometry validation review set
+
+Prepare the deterministic 120-image, large-plate review queue without changing
+the original validation split:
+
+```powershell
+.\.venv\Scripts\python.exe tools\prepare_geometry_validation.py `
+  --validation out\ezcon-detector-v1\validation `
+  --output out\ezcon-detector-v1\validation_geometry_clean `
+  --seed 20260923 --target 120 --expected-tilted 30 --ge256-minimum 20
+```
+
+All annotated plates with rotation at least 15 degrees are fixed in the queue.
+The remaining images are sampled deterministically by 640px-input bbox short
+side (`128-191`, `192-255`, `ge256`), with at least 20 additional `ge256`
+images. Review is image-level: correct every plate visible in an accepted image,
+including plates missing from the original annotation. Images retain their exact
+bytes; labels keep original and separately editable reviewed corners. The
+manifest records image/label hashes, selection provenance, review status,
+exclusion reason, reviewer note, and review time.
+
+The prepared directory is deliberately marked `pending_manual_review` and has no
+`real-detection-v1` `dataset.json`. It is not a valid benchmark or training input
+until a separate fail-closed finalization step validates every accepted label.
+
+Start the local image-level reviewer with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\review_geometry_validation.py `
+  --workspace out\ezcon-detector-v1\validation_geometry_clean
+```
+
+The editor binds to `127.0.0.1:8765`, opens the original image bytes, and draws
+the editable `LT, RT, RB, LB` polygon. Drag handles to correct corners; add or
+delete complete plates to remove image-level missing-label errors; then accept or
+exclude the image. Accepted labels must contain at least one valid, in-frame,
+convex semantic quad. Every save writes reviewed corners separately from the
+immutable original label and updates the manifest status, reason, note, and UTC
+review time. Navigation preserves unfinished edits as `pending`.
+The precision editor is intentionally desktop-only and requires a viewport at
+least 1024 pixels wide; small screens show a fail-closed desktop requirement.
+
+After every image is accepted or excluded, publish a separate immutable clean
+benchmark (the review workspace remains untouched):
+
+```powershell
+.\.venv\Scripts\python.exe tools\finalize_geometry_validation.py `
+  --workspace out\ezcon-detector-v1\validation_geometry_clean `
+  --output out\ezcon-detector-v1\validation_geometry_clean_benchmark
+```
+
+Finalization fails on pending records, missing exclusion reasons, changed image
+bytes, changed original-label hashes, identity mismatches, empty accepted
+labels, or invalid/non-semantic quads. The output is a local-only
+`real-detection-v1` validation split with a content-derived review revision and
+the reviewed manifest retained as audit evidence. Existing output directories
+are never overwritten.
+
+### Large-object P3 supervision A/B
+
+The baseline keeps plates with a 640px-input bbox short side of at least 128px
+on P4/P5. The opt-in experiment adds P3 for those plates only; smaller target
+assignment, network architecture, input size, loss weights, and evaluation
+thresholds remain unchanged:
+
+```powershell
+.\.venv\Scripts\python.exe -m plateai_trainer.detection.train_cli `
+  --train out\ezcon-detector-v1\train `
+  --validation out\ezcon-detector-v1\validation `
+  --output runs\detector-real-v3-large-p3 `
+  --epochs 60 --batch-size 16 --learning-rate 0.001 `
+  --seed 42 --device cuda --large-object-p3
+```
+
+The flag defaults off. Both the checkpoint and report record the resolved
+target-assignment sentence, and the flag participates in the configuration
+hash. Compare the resulting checkpoint against v2 only on the immutable clean
+geometry benchmark; do not use the frozen test split for model selection.

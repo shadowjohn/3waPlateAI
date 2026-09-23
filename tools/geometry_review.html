@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>3waPlateAI 幾何人工審核</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>3waPlateAI 幾何人工審核</h1>
+    <div class="shortcuts">快捷鍵：← 上一張　→ 下一張　A 接受　X 排除　N 新增車牌　D 刪除車牌　R 回復原始</div>
+  </header>
+  <main class="shell">
+    <aside class="queue-panel">
+      <div class="queue-heading"><span>影像佇列</span><strong id="progress">0 / 120</strong></div>
+      <div class="progress-track"><span id="progress-bar"></span></div>
+      <button class="filter active" data-filter="pending"><i class="dot blue"></i>待審核 <b id="pending-count">0</b></button>
+      <button class="filter" data-filter="accepted"><i class="dot green"></i>接受 <b id="accepted-count">0</b></button>
+      <button class="filter" data-filter="excluded"><i class="dot red"></i>排除 <b id="excluded-count">0</b></button>
+      <button class="filter" data-filter="all"><i class="dot gray"></i>全部 <b id="all-count">0</b></button>
+    </aside>
+
+    <section class="workspace">
+      <div class="canvas-frame" id="canvas-frame">
+        <canvas id="canvas"></canvas>
+        <div class="loading" id="loading">載入影像…</div>
+        <div class="canvas-meta"><span id="zoom-label">100%</span><span id="image-size">—</span></div>
+      </div>
+      <div class="zoom-controls">
+        <button id="zoom-out" title="縮小">−</button><button id="fit" title="符合視窗">符合</button><button id="zoom-in" title="放大">＋</button>
+        <span id="edit-hint">拖曳圓點修正四角；點選角點後可刪除該 plate</span>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <div class="inspector-heading"><h2>標註資訊</h2><span class="status pending" id="status">待審核</span></div>
+      <dl>
+        <dt>validation_index</dt><dd id="validation-index">—</dd>
+        <dt>size_bucket</dt><dd id="size-bucket">—</dd>
+        <dt>rotation_deg</dt><dd id="rotation-deg">—</dd>
+        <dt>image_sha</dt><dd class="mono" id="image-sha">—</dd>
+        <dt>bbox short side</dt><dd id="short-side">—</dd>
+      </dl>
+      <div class="divider"></div>
+      <h3>原始 / 審核後車牌數</h3>
+      <dl>
+        <dt>original_count</dt><dd id="original-count">0</dd>
+        <dt>reviewed_count</dt><dd id="reviewed-count">0</dd>
+      </dl>
+      <label for="exclude-reason">排除原因</label>
+      <select id="exclude-reason">
+        <option value="">請選擇排除原因</option>
+        <option value="occluded_or_unreadable">遮蔽或模糊，無法可靠判定</option>
+        <option value="ambiguous_plate_boundary">車牌邊界不明</option>
+        <option value="not_a_plate">原標註不是車牌</option>
+        <option value="other">其他</option>
+      </select>
+      <label for="reviewer-note">審核註記</label>
+      <textarea id="reviewer-note" maxlength="500" placeholder="補標、修框或排除原因的補充…"></textarea>
+      <div class="save-state" id="save-state">未修改</div>
+    </aside>
+  </main>
+
+  <footer class="actions">
+    <button id="previous" class="secondary">← 上一張</button>
+    <button id="next" class="primary">下一張 →</button>
+    <span class="action-separator"></span>
+    <button id="add-plate" class="secondary">＋ 新增車牌</button>
+    <button id="delete-plate" class="secondary">刪除車牌</button>
+    <button id="reset" class="secondary">↶ 回復原始</button>
+    <span class="action-separator grow"></span>
+    <button id="accept" class="accept">✓ 接受</button>
+    <button id="exclude" class="exclude">× 排除</button>
+  </footer>
+  <script src="/app.js"></script>
+</body>
+</html>

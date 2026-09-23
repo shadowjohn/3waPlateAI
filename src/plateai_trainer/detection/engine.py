@@ -34,6 +34,7 @@ class DetectorTrainingConfig:
     learning_rate: float = 1e-3
     seed: int = 42
     device: str = "cpu"
+    large_object_p3: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +267,8 @@ def _validate_config(config):
         raise DetectionDataError("device must be cpu or cuda")
     if config.device == "cuda" and not torch.cuda.is_available():
         raise DetectionDataError("CUDA was requested but is unavailable")
+    if type(config.large_object_p3) is not bool:
+        raise DetectionDataError("large_object_p3 must be a boolean")
 
 
 def _runtime_provenance():
@@ -289,8 +292,12 @@ def _runtime_provenance():
 def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
     """Publish best.pt and report.json together into a new directory only."""
     _validate_config(config)
-    train = load_detection_dataset(config.train_directory)
-    validation = load_detection_dataset(config.validation_directory)
+    train = load_detection_dataset(
+        config.train_directory, large_object_p3=config.large_object_p3
+    )
+    validation = load_detection_dataset(
+        config.validation_directory, large_object_p3=config.large_object_p3
+    )
     for dataset, split in ((train, 'train'), (validation, 'validation')):
         if hasattr(dataset, 'provenance') and dataset.provenance['split'] != split:
             raise DetectionDataError(f'real data split must be {split}; test data is evaluation-only')
@@ -335,7 +342,9 @@ def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
                             "epoch": epoch, "input_shape": [3, 640, 640], "output_shape": [8400, 13],
                             "preprocess": "letterbox_rgb_v1", "corner_order": ["left_top", "right_top", "right_bottom", "left_bottom"],
                             "input_hashes": inputs, "runtime_provenance": runtime, "data_provenance": provenance,
-                            "config": config_values, "config_sha256": config_hash}, staging / "best.pt")
+                            "config": config_values, "config_sha256": config_hash,
+                            "target_assignment": ("large >=128px: P3/P4/P5" if config.large_object_p3
+                                                  else "large >=128px: P4/P5")}, staging / "best.pt")
         overfit = _overfit_smoke(train)
         train.verify_unchanged()
         validation.verify_unchanged()
@@ -344,6 +353,8 @@ def train_detector(config: DetectorTrainingConfig) -> DetectorTrainingRun:
                   "checkpoint_selection": "maximum validation complete_quad_recall, then complete_quad_precision, bbox_ap50, minimum validation loss; earliest exact tie",
                   "epochs": history, "overfit": overfit, "metric_config": dict(_METRIC_CONFIG),
                   "input_hashes": inputs, "config": config_values, "config_sha256": config_hash,
+                  "target_assignment": ("large >=128px: P3/P4/P5" if config.large_object_p3
+                                        else "large >=128px: P4/P5"),
                   "runtime_provenance": runtime,
                   "data_provenance": provenance,
                   "optimization": {"objectness_normalization": "sum / max(1, batch_positive_cells)", "initial_objectness_prior": 0.01},
