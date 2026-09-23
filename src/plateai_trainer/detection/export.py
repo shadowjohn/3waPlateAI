@@ -71,13 +71,24 @@ def _export_detector_onnx(model: PlatePoseNet, path: Path) -> None:
     torch.onnx.export(
         model, (torch.zeros((2, 3, 640, 640), dtype=torch.float32),), path,
         input_names=["images"], output_names=["candidates"], opset_version=17,
-        dynamo=True, external_data=False,
-        dynamic_shapes=({0: torch.export.Dim("batch", min=1, max=32)},),
+        # PyTorch 2.7's dynamo exporter only supports opset 18 and above.  The
+        # packaged detector contract is ONNX opset 17, so use the legacy
+        # exporter here and explicitly preserve its dynamic batch metadata.
+        dynamo=False, external_data=False,
+        dynamic_axes={"images": {0: "batch"}, "candidates": {0: "batch"}},
     )
+    graph = onnx.load(path, load_external_data=False)
+    output_dimensions = graph.graph.output[0].type.tensor_type.shape.dim
+    output_dimensions[0].ClearField("dim_value")
+    output_dimensions[0].dim_param = "batch"
+    output_dimensions[1].ClearField("dim_param")
+    output_dimensions[1].dim_value = 8400
+    output_dimensions[2].ClearField("dim_param")
+    output_dimensions[2].dim_value = 13
+    onnx.save(graph, path)
     if path.stat().st_size > 8 * 1024 * 1024:
         raise ValueError("detector model exceeds 8 MiB")
     onnx.checker.check_model(str(path), full_check=True)
-    graph = onnx.load(path, load_external_data=False)
     if next((item.version for item in graph.opset_import if item.domain == ""), None) != 17:
         raise ExportParityError("detector ONNX opset must equal 17")
 
