@@ -133,6 +133,22 @@ def _quantiles(values):
     }
 
 
+def _quad_iou(first, second):
+    first = np.asarray(first, dtype=np.float32)
+    second = np.asarray(second, dtype=np.float32)
+    if (first.shape != (4, 2) or second.shape != (4, 2)
+            or not np.isfinite(first).all() or not np.isfinite(second).all()
+            or not cv2.isContourConvex(first) or not cv2.isContourConvex(second)):
+        return 0.0
+    first_area = float(abs(cv2.contourArea(first)))
+    second_area = float(abs(cv2.contourArea(second)))
+    if first_area <= 0 or second_area <= 0:
+        return 0.0
+    intersection, _ = cv2.intersectConvexConvex(first, second)
+    union = first_area + second_area - float(intersection)
+    return float(intersection) / union if union > 0 else 0.0
+
+
 def _rotation_stratum(corners):
     edge = corners[1] - corners[0]
     angle = abs(math.degrees(math.atan2(float(edge[1]), float(edge[0]))))
@@ -160,6 +176,9 @@ def _failure_analysis(predictions, truths, dataset):
               "scene_instances": defaultdict(lambda: {"instances": 0, "bbox_tp": 0, "quad_tp": 0, "errors": []})}
     scores = {"bbox_matches": [], "false_positives": []}
     corner_errors = [[] for _ in range(4)]
+    all_corner_errors = []
+    quad_ious = []
+    quad_le_4 = 0
     failures = {"false_positives": [], "missed_ground_truth": [], "quad_failures": []}
     rectifier_rejections = Counter()
     total_detections = bbox_tp = quad_tp = 0
@@ -180,6 +199,11 @@ def _failure_analysis(predictions, truths, dataset):
                 quad_tp += int(is_quad)
                 for index, value in enumerate(item["errors"]):
                     corner_errors[index].append(float(value))
+                    all_corner_errors.append(float(value))
+                quad_ious.append(_quad_iou(
+                    item["corners"], instances[item["gt_index"]].corners_xy
+                ))
+                quad_le_4 += int(np.all(item["errors"] <= 4.0))
                 if not is_quad:
                     failures["quad_failures"].append({
                         "image_index": image_index, "gt_index": item["gt_index"],
@@ -225,6 +249,14 @@ def _failure_analysis(predictions, truths, dataset):
         "false_positives": total_detections - bbox_tp,
         "missed_ground_truth": sum(len(items) for items in truths) - bbox_tp,
         "complete_quad_true_positives": quad_tp,
+        "geometry_summary": {
+            "corner_error_640px": _quantiles(all_corner_errors),
+            "quad_iou": _quantiles(quad_ious),
+            "complete_quad_le_4px_true_positives": quad_le_4,
+            "complete_quad_le_4px_recall": quad_le_4 / sum(len(items) for items in truths),
+            "complete_quad_le_8px_true_positives": quad_tp,
+            "complete_quad_le_8px_recall": quad_tp / sum(len(items) for items in truths),
+        },
         "scores": {key: _quantiles(value) for key, value in scores.items()},
         "semantic_corner_error_640px": {name: _quantiles(values) for name, values in zip(_CORNER_NAMES, corner_errors, strict=True)},
         "rectifier_rejections": dict(sorted(rectifier_rejections.items())),
