@@ -1,0 +1,93 @@
+{
+  "schema": "fpga-lpr-onnx-v1",
+  "model_id": "fpga-lpr-mit-v1",
+  "source_commit": "574667ca7f5730d17b4b6fcda3ec568521bcbcd8",
+  "model_revision": "51b9606b174eedbc091aec844c288a72aa9cd25b",
+  "license_notice": "MIT-LICENSE.txt",
+  "charset": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+    "I",
+    "O",
+    "-"
+  ],
+  "components": {
+    "cpm": {
+      "filename": "cpm.onnx",
+      "sha256": "a9170618969315f8e2b5d9a1e7ccf8d9e20c3468142bb66732a7ca101d55c67a",
+      "inputs": {
+        "input": [
+          "batch",
+          3,
+          100,
+          100
+        ]
+      },
+      "outputs": {
+        "stage": [
+          "batch",
+          4,
+          50,
+          50
+        ],
+        "heatmap": [
+          "batch",
+          4,
+          50,
+          50
+        ]
+      }
+    },
+    "lprnet": {
+      "filename": "lprnet.onnx",
+      "sha256": "e10d1cd12874071ff40f8c7bd20f8fdd7e2a22cce0e320e5d4daf3de4f892be8",
+      "inputs": {
+        "input": [
+          "batch",
+          3,
+          48,
+          94
+        ]
+      },
+      "outputs": {
+        "logits": [
+          "batch",
+          37,
+          18
+        ]
+      }
+    }
+  }
+}
