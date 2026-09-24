@@ -55,6 +55,13 @@ def test_index_page(web_client: TestClient):
     assert "老司機" in response.text
 
 
+def test_inference_page_offers_fixed_external_preview_choice(web_client: TestClient) -> None:
+    html = web_client.get("/").text
+    assert 'id="candidate-preview-kind"' in html
+    assert 'value="native-preview"' in html
+    assert 'value="fpga-lpr-mit"' in html
+
+
 def test_static_assets(web_client: TestClient):
     assert web_client.get("/css/app.css").status_code == 200
     assert web_client.get("/js/app.js").status_code == 200
@@ -174,6 +181,78 @@ def test_compare_api_returns_named_active_and_fixed_candidate_without_activation
         "activation_changed": False,
     }
     assert calls == [("active-v1", b"image-payload"), ("candidate-detector-real-v1", b"image-payload")]
+    assert not (tmp_path / "models" / "bundles" / "active-v1").exists()
+
+
+def test_external_preview_is_allowlisted_and_does_not_activate(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from plateai_web import app as app_module
+
+    calls: list[tuple[str, bytes]] = []
+
+    class StubPredictor:
+        def __init__(self, name: str):
+            self.name = name
+
+        def predict_image(self, image_bytes: bytes) -> dict:
+            calls.append((self.name, image_bytes))
+            return {"status": "no_plate", "detections": [], "rejections": [],
+                    "diagnostics": {"bundle_name": self.name}}
+
+    monkeypatch.setattr(app_module, "predictor", StubPredictor("active-v1"))
+    monkeypatch.setattr(app_module, "_fpga_lpr_predictor", lambda: StubPredictor("fpga-lpr-mit"), raising=False)
+    response = web_client.post(
+        "/api/predict/compare",
+        data={"candidate_kind": "fpga-lpr-mit"},
+        files={"file": ("plate.png", b"identical-payload", "image/png")},
+    )
+    assert response.status_code == 200
+    assert response.json()["preview"] == {
+        "active_bundle": "active-v1", "candidate_bundle": "fpga-lpr-mit",
+        "activation_changed": False,
+    }
+    assert calls == [("active-v1", b"identical-payload"), ("fpga-lpr-mit", b"identical-payload")]
+    bad = web_client.post(
+        "/api/predict/compare",
+        data={"candidate_kind": "../../models/bundles/active-v1"},
+        files={"file": ("plate.png", b"identical-payload", "image/png")},
+    )
+    assert bad.status_code == 422
+    assert len(calls) == 2
+    assert not (tmp_path / "models" / "bundles" / "active-v1").exists()
+
+
+def test_external_asset_failure_keeps_active_result(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from plateai_web import app as app_module
+    from plateai_web.external_predictor import ExternalPredictorEngine
+
+    class Active:
+        def predict_image(self, _image_bytes: bytes) -> dict:
+            return {"status": "ok", "detections": [{"plate_text": "ABC1234"}]}
+
+    monkeypatch.setattr(app_module, "predictor", Active())
+    monkeypatch.setattr(app_module, "_fpga_lpr_predictor", lambda: ExternalPredictorEngine(tmp_path))
+    response = web_client.post(
+        "/api/predict/compare", data={"candidate_kind": "fpga-lpr-mit"},
+        files={"file": ("plate.png", b"image-payload", "image/png")},
+    )
+    assert response.status_code == 200
+    assert response.json()["active"]["status"] == "ok"
+    assert response.json()["candidate"]["status"] == "model_error"
+
+
+def test_external_manifest_cannot_be_activated_as_native_bundle(
+    web_client: TestClient, tmp_path: Path
+) -> None:
+    bundle = tmp_path / "models" / "bundles" / "fpga-lpr-mit"
+    bundle.mkdir(parents=True)
+    (bundle / "recognizer.onnx").write_bytes(b"not a native recognizer")
+    (bundle / "manifest.json").write_text('{"schema": "fpga-lpr-onnx-v1"}', encoding="utf-8")
+    response = web_client.post("/api/model/activate", json={"bundle_name": "fpga-lpr-mit"})
+    assert response.status_code == 400
     assert not (tmp_path / "models" / "bundles" / "active-v1").exists()
 
 

@@ -137,3 +137,52 @@ def test_preview_engine_is_bound_to_candidate_and_marks_unreviewed_local_only(mo
     value._read_model_warnings(value._bundle_path())
     assert value._bundle_path() == tmp_path / 'models' / 'bundles' / 'candidate-detector-real-v1'
     assert any('本機 A/B 候選' in warning for warning in value.model_warnings)
+
+
+def test_external_predictor_missing_assets_fail_closed_without_contour_fallback(tmp_path):
+    from plateai_web.external_predictor import ExternalPredictorEngine
+
+    value = ExternalPredictorEngine(tmp_path)
+    response = value.predict_image(image_bytes())
+    assert response['status'] == 'model_error'
+    assert response['detections'] == []
+    assert response['diagnostics']['pipeline_mode'] == 'unavailable'
+    assert response['diagnostics']['recognizer_type'] == 'fpga-lpr-mit'
+    assert response['diagnostics']['error']
+
+
+def test_external_predictor_reports_text_without_fabricated_confidence(monkeypatch, tmp_path):
+    from plateai_reader.fpga_lpr import FpgaLprRead
+    from plateai_reader.fpga_pipeline import FpgaScenePlate, FpgaSceneResult
+    from plateai_web.external_predictor import ExternalPredictorEngine
+
+    detection = PlateDetection(
+        bbox_xyxy=np.array([10, 20, 190, 80], np.float32), confidence=0.9,
+        corners_xy=np.array([[10, 20], [190, 20], [190, 80], [10, 80]], np.float32),
+    )
+    read = FpgaLprRead(
+        raw_text='ABC1234', normalized_text='ABC1234',
+        aligned_rgb=np.full((48, 94, 3), 255, np.uint8),
+        roi_corners_xy=np.array([[0, 0], [93, 0], [93, 47], [0, 47]], np.float32),
+        timings_ms={'total': 4.0, 'cpm': 1.0, 'lprnet_decode': 2.0},
+    )
+    scene = FpgaSceneResult(
+        plates=(FpgaScenePlate(detection, read),), rejections=(),
+        detector_id='plate_pose_net', recognizer_id='fpga-lpr-mit-v1',
+        providers=('CPUExecutionProvider',), timings_ms={'detector': 2.0, 'roi_and_recognizer': 4.0},
+    )
+
+    def use_scene(self):
+        self.scene_reader = SimpleNamespace(read=lambda _rgb: scene)
+        self.load_error = None
+
+    monkeypatch.setattr(ExternalPredictorEngine, '_load_models', use_scene)
+    response = ExternalPredictorEngine(tmp_path).predict_image(image_bytes())
+    assert response['status'] == 'ok'
+    record = response['detections'][0]
+    assert record['plate_text'] == 'ABC1234'
+    assert record['raw_greedy_text'] == 'ABC1234'
+    assert record['confidence'] is None
+    assert record['score_kind'] == 'uncalibrated'
+    assert response['diagnostics']['recognizer_type'] == 'fpga-lpr-mit'
+    assert response['diagnostics']['detector_bundle'] == 'candidate-detector-real-v1'

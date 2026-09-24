@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import shutil
 import sqlite3
@@ -10,7 +11,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 from .downloader import download_ezcon_task, download_tlpd_task
 from .evaluator import run_benchmark_task
+from .external_predictor import ExternalPredictorEngine
 from .generator import generate_dataset_task
 from .paths import web_root, workspace_root
 from .predictor import PredictorEngine, predictor
@@ -36,6 +38,7 @@ app = FastAPI(title="3waPlateAI Studio", version="1.0.0")
 
 CANDIDATE_BUNDLE = "candidate-detector-real-v1"
 _candidate_engine: PredictorEngine | None = None
+_fpga_engine: ExternalPredictorEngine | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -481,6 +484,9 @@ def activate_model(req: ActivateModelRequest | None = None):
     if target_bundle_dir is None or not target_bundle_dir.exists():
         raise HTTPException(status_code=404, detail="找不到可啟用的模型 Bundle 目錄")
 
+    if target_bundle_dir.name == "fpga-lpr-mit":
+        raise HTTPException(status_code=400, detail="外部 FPGA-LPR 契約不能啟用為原生 v1 Bundle")
+
     onnx_file = target_bundle_dir / "recognizer.onnx"
     manifest_file = target_bundle_dir / "manifest.json"
     if not onnx_file.exists() or not manifest_file.exists():
@@ -488,6 +494,12 @@ def activate_model(req: ActivateModelRequest | None = None):
             status_code=400,
             detail=f"Bundle 目錄 {target_bundle_dir.name} 缺少必要模型檔案 (recognizer.onnx 或 manifest.json)",
         )
+    try:
+        declaration = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Bundle manifest 無效") from exc
+    if declaration.get("schema") == "fpga-lpr-onnx-v1":
+        raise HTTPException(status_code=400, detail="外部 FPGA-LPR 契約不能啟用為原生 v1 Bundle")
 
     active_dir.mkdir(parents=True, exist_ok=True)
     for item in target_bundle_dir.iterdir():
@@ -522,6 +534,14 @@ def _candidate_predictor() -> PredictorEngine:
     return _candidate_engine
 
 
+def _fpga_lpr_predictor() -> ExternalPredictorEngine:
+    """Return one fixed, preview-only external OCR engine; no request path."""
+    global _fpga_engine
+    if _fpga_engine is None or _fpga_engine.root != ROOT:
+        _fpga_engine = ExternalPredictorEngine(ROOT)
+    return _fpga_engine
+
+
 async def _uploaded_image_bytes(
     file: UploadFile | None,
     image_base64: str | None,
@@ -552,16 +572,18 @@ async def predict_image_upload(
 async def compare_image_upload(
     file: UploadFile | None = None,
     image_base64: str | None = Form(None),
+    candidate_kind: Literal["native-preview", "fpga-lpr-mit"] = Form("native-preview"),
 ):
-    """Run active and fixed experimental candidate on identical uploaded bytes."""
+    """Run active and one allowlisted preview candidate on identical bytes."""
     try:
         image_bytes = await _uploaded_image_bytes(file, image_base64)
+        candidate = _candidate_predictor() if candidate_kind == "native-preview" else _fpga_lpr_predictor()
         return {
             "active": predictor.predict_image(image_bytes),
-            "candidate": _candidate_predictor().predict_image(image_bytes),
+            "candidate": candidate.predict_image(image_bytes),
             "preview": {
                 "active_bundle": "active-v1",
-                "candidate_bundle": CANDIDATE_BUNDLE,
+                "candidate_bundle": CANDIDATE_BUNDLE if candidate_kind == "native-preview" else "fpga-lpr-mit",
                 "activation_changed": False,
             },
         }

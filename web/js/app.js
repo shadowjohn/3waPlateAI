@@ -930,8 +930,16 @@ $(function () {
     const ctx = canvas ? canvas.getContext("2d") : null;
     let currentImageObj = null;
 
+    $("#toggle-candidate-preview").on("change", function () {
+        $("#candidate-preview-kind").prop("disabled", !this.checked);
+    });
+
     function handleImageInference(formData) {
         const previewCandidate = $("#toggle-candidate-preview").prop("checked");
+        if (previewCandidate) {
+            const selected = $("#candidate-preview-kind").val();
+            formData.set("candidate_kind", selected === "fpga-lpr-mit" ? "fpga-lpr-mit" : "native-preview");
+        }
         setMascotLine("抓到了！老司機眼睛一亮，正在全速辨識中...🔍");
         $("#infer-loading").show();
 
@@ -989,7 +997,11 @@ $(function () {
         const accepted = candidate.detections || [];
         const rejected = candidate.rejections || [];
         const label = candidateDiag.bundle_name || (preview && preview.candidate_bundle) || "候選模型";
-        const $title = $("<div>").addClass("fw-bold mb-1").text("本機 A/B 定位對照（未啟用、不影響現役模型）");
+        const isExternalOcr = candidateDiag.recognizer_type === "fpga-lpr-mit";
+        const $title = $("<div>").addClass("fw-bold mb-1").text(
+            isExternalOcr ? "本機 A/B：作者 CPM + LPRNet OCR（未啟用、不影響現役模型）" :
+                "本機 A/B 定位對照（未啟用、不影響現役模型）"
+        );
         const $counts = $("<div>").text(
             `現役：${(preview && preview.active_bundle) || "active-v1"}；候選：${label}；候選 ${accepted.length} 通過／${rejected.length} 拒絕`
         );
@@ -997,6 +1009,24 @@ $(function () {
             "紫色實線＝候選通過辨識；紫色虛線＝候選定位到但未通過 OCR，僅供定位診斷。"
         );
         $summary.append($title, $counts, $notice);
+        if (isExternalOcr) {
+            $summary.append($("<div>").addClass("mt-1").text(
+                `辨識器：${candidateDiag.model_id || "fpga-lpr-mit-v1"}；定位：${candidateDiag.detector_bundle || "未載入"}；OCR 分數未校準，不能當正確率。`
+            ));
+            $summary.append($("<a>").attr({
+                href: "https://github.com/evan6007/FPGA-LPR", target: "_blank", rel: "noopener noreferrer"
+            }).addClass("d-inline-block mt-1").text("作者原始碼與來源資訊"));
+            accepted.forEach(function (plate, index) {
+                $summary.append($("<div>").addClass("mt-1").text(
+                    `候選 ${index + 1}：${plate.plate_text || "空白"}（原文：${plate.raw_greedy_text || "空白"}）`
+                ));
+            });
+            rejected.slice(0, 10).forEach(function (plate, index) {
+                $summary.append($("<div>").addClass("mt-1 text-danger").text(
+                    `拒絕 ${index + 1}：${plate.reason || "未知原因"}`
+                ));
+            });
+        }
         const warnings = candidateDiag.warnings || [];
         if (candidateDiag.error) warnings.unshift(`候選推論錯誤：${candidateDiag.error}`);
         warnings.forEach(function (warning) {

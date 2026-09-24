@@ -445,6 +445,14 @@
                     本機 A/B 候選定位預覽（現役模型不會被替換）
                 </label>
             </div>
+            <div class="d-flex align-items-center gap-2 mt-2 small">
+                <label for="candidate-preview-kind" class="text-muted">候選辨識器：</label>
+                <select id="candidate-preview-kind" class="form-select form-select-sm" style="max-width: 330px;" disabled>
+                    <option value="native-preview">原本的本機候選模型</option>
+                    <option value="fpga-lpr-mit">作者 CPM + LPRNet（MIT，OCR 實驗）</option>
+                </select>
+                <span class="text-muted">外部 OCR 仍仰賴本機 Detector 定位，尚無獨立實拍盲測。</span>
+            </div>
 
             <div id="infer-loading" class="text-center py-2 text-primary fw-bold" style="display: none;">
                 <div class="spinner-border spinner-border-sm me-2" role="status"></div>
