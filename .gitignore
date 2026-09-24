@@ -19,6 +19,7 @@ test_data/
 # Models and accelerator artifacts are never release content
 *.ckpt
 *.onnx
+!third_party/fpga_lpr/*.onnx
 *.engine
 *.plan
 *.pt

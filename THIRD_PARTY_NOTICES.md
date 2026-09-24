@@ -17,3 +17,9 @@ OpenCV wheels and NumPy distributions can contain separately licensed third-part
 `assets/fonts/NotoSansMono[wdth,wght].ttf` is the unmodified Google Fonts Noto Sans Mono variable font. Its SHA-256 is `2cb2adb378a8f574213e23df697050b83c54c27df465a2015552740b2769a081`; its required copyright and OFL-1.1 text are preserved in `assets/fonts/OFL.txt`. M1 uses the font at weight 700 and width 62. It is an OFL-licensed approximation for the official new-style plate glyphs, not an official Taiwan number-plate font.
 
 Any user-provided font remains local by default. Anyone distributing an additional font must preserve its required copyright and license notice. The same rule applies to datasets and locally trained Model Bundles.
+
+## Pinned FPGA-LPR OCR option
+
+The optional `fpga-lpr-mit-v1` CPM and LPRNet architecture/weights are derived from [evan6007/FPGA-LPR](https://github.com/evan6007/FPGA-LPR) and its [model repository](https://huggingface.co/evan6007/FPGA-LPR). The source README and model metadata declare MIT. Source commit, weight revision, original/converted hashes, local modifications, and the full MIT permission notice are recorded in `third_party/fpga_lpr/UPSTREAM.md`, `manifest.json`, and `MIT-LICENSE.txt`. The upstream source did not supply a named copyright line; this project does not invent one. Keep these notices with any copy of the models or substantial derived code.
+
+This option is an explicit exception to the former source-only/no-weight policy. It does **not** grant distribution rights to TLPD images, EZCon data or derived weights, or AGPL-labeled external detector code/weights. The crop-only OCR package does not include those items or the native scene detector. Review the exact ONNX files and notices before publishing a package.
