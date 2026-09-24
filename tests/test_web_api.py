@@ -67,6 +67,13 @@ def test_static_assets(web_client: TestClient):
     assert web_client.get("/js/app.js").status_code == 200
 
 
+def test_inference_page_separates_candidate_and_active_lists(web_client):
+    html = web_client.get("/").text
+    assert 'id="infer-candidate-list"' in html
+    assert 'id="infer-active-label"' in html
+    assert html.index('id="infer-candidate-list"') < html.index('id="table-infer-list"')
+
+
 @pytest.mark.parametrize("endpoint,payload", [
     ("/api/benchmark/run", {"rounds": 0}),
     ("/api/benchmark/run", {"warmup": -1}),

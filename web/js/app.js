@@ -1012,6 +1012,7 @@ $(function () {
 
     function renderCandidatePreview(candidate, preview) {
         const $summary = $("#infer-ab-summary");
+        const $candidateList = $("#infer-candidate-list").empty().hide();
         $summary.empty();
         if (!candidate) {
             $summary.hide();
@@ -1022,6 +1023,42 @@ $(function () {
         const rejected = candidate.rejections || [];
         const label = candidateDiag.bundle_name || (preview && preview.candidate_bundle) || "候選模型";
         const isExternalOcr = candidateDiag.recognizer_type === "fpga-lpr-mit";
+        const source = isExternalOcr ? "MIT CPM + LPRNet" : "原生候選模型";
+        $candidateList.append($("<strong>").text(`候選結果 · ${source}`),
+            $("<div>").addClass("small text-muted mb-2").text(
+                `${label} · ${accepted.length} ${isExternalOcr ? "筆 OCR 輸出" : "通過"}／${rejected.length} 拒絕 · 未替換現役模型`));
+        if (isExternalOcr) $candidateList.append($("<p>").addClass("small text-muted").text("OCR 輸出可能為碎片或誤報；分數未校準，不代表正確率。"));
+        if (candidateDiag.error) {
+            $candidateList.append($("<div>").addClass("alert alert-danger small").text(`候選推論失敗：${candidateDiag.error}`));
+        } else if (!accepted.length) {
+            $candidateList.append($("<p>").addClass("text-muted small").text("候選模型沒有可顯示的辨識輸出。"));
+        }
+        accepted.forEach(function (plate, index) {
+            const $entry = $("<div>").addClass("border rounded p-2 mb-2");
+            const score = Number.isFinite(plate.confidence) ? `${plate.confidence}%` : "未提供";
+            $entry.append($("<div>").addClass("fw-bold mb-1").text(`${index + 1}. ${plate.plate_text || "空白"}`));
+            if (plate.crop_base64) $entry.append($("<img>").attr({ src: plate.crop_base64, alt: `${source} 實際裁切` })
+                .addClass("crop-inspect-btn rounded border mb-1").css({ maxWidth: "100%", height: "55px", cursor: "zoom-in" })
+                .data({ crop: plate.crop_base64, plate: plate.plate_text || "空白", raw: plate.raw_greedy_text || "空白", rule: plate.rule_id || "無", conf: score }));
+            $entry.append($("<div>").addClass("small").text(`原文：${plate.raw_greedy_text || "空白"} · OCR 分數：${score}（未校準）`));
+            const timing = plate.timings || {};
+            const inferenceMs = isExternalOcr ? timing.cpm + timing.lprnet : timing.onnx_ms;
+            const decodeMs = isExternalOcr ? timing.decode : timing.ctc_ms;
+            $entry.append($("<div>").addClass("small text-muted").text(
+                `推論：${Number.isFinite(inferenceMs) ? inferenceMs.toFixed(1) + " ms" : "未提供"} · 解碼：${Number.isFinite(decodeMs) ? decodeMs.toFixed(1) + " ms" : "未提供"}`));
+            $candidateList.append($entry);
+        });
+        if (rejected.length) {
+            const $details = $("<details>").addClass("small").append($("<summary>").text(`候選模型拒絕診斷（${rejected.length} 筆）`));
+            rejected.forEach(function (plate) {
+                const $entry = $("<div>").addClass("border-bottom py-2");
+                if (plate.crop_base64) $entry.append($("<img>").attr({ src: plate.crop_base64, alt: "候選拒絕裁切" }).css({ width: "95px", height: "40px", objectFit: "contain" }));
+                $entry.append($("<span>").text(` ${plate.reason || "未通過辨識"} · 原文：${plate.raw_greedy_text || "空白"}`));
+                $details.append($entry);
+            });
+            $candidateList.append($details);
+        }
+        $candidateList.show();
         const $title = $("<div>").addClass("fw-bold mb-1").text(
             isExternalOcr ? "本機 A/B：作者 CPM + LPRNet OCR（未啟用、不影響現役模型）" :
                 "本機 A/B 定位對照（未啟用、不影響現役模型）"
@@ -1055,7 +1092,7 @@ $(function () {
                 ));
             });
         }
-        const warnings = candidateDiag.warnings || [];
+        const warnings = (candidateDiag.warnings || []).slice();
         if (candidateDiag.error) warnings.unshift(`候選推論錯誤：${candidateDiag.error}`);
         warnings.forEach(function (warning) {
             $summary.append($("<div>").addClass("mt-1").text(warning));
@@ -1088,6 +1125,7 @@ $(function () {
         const tb = diag.timing_breakdown || {};
 
         $("#diag-bundle").text(`Bundle: ${diag.bundle_name || "active-v1"}`);
+        $("#infer-active-label").text(`現役模型 · ${diag.bundle_name || "active-v1"}`);
         $("#diag-model-id").text(`Model: ${diag.model_id || "-"}`);
 
         if (diag.pipeline_mode === "unavailable" || res.status === "inference_error") {
@@ -1218,6 +1256,11 @@ $(function () {
             setMascotLine(`辨識結果【${res.detections[0].plate_text}】，${rejected.length} 個候選被拒絕；總耗時 ${res.latency_ms}ms。`);
         }
         renderCandidatePreview(candidate, preview);
+        if (candidate) {
+            const outputs = candidate.detections || [];
+            const source = (candidate.diagnostics || {}).recognizer_type === "fpga-lpr-mit" ? "MIT 候選" : "原生候選";
+            setMascotLine(`${source}：${(candidate.diagnostics || {}).error ? "推論失敗" : outputs.length ? outputs.map(p => p.plate_text || "空白").join("、") : "無辨識輸出"}；現役：${(res.detections || []).length} 通過／${rejected.length} 拒絕。兩套結果分開顯示。`);
+        }
     }
 
     $(document).on("click", ".crop-inspect-btn", function () {

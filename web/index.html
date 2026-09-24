@@ -464,7 +464,7 @@
             <div id="infer-diagnostic-bar" class="panel py-2 px-3 mb-3 bg-light border shadow-sm" style="display: none;">
                 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 small">
                     <div class="d-flex align-items-center flex-wrap gap-2">
-                        <span class="fw-bold text-dark">🔬 運作診斷：</span>
+                        <span class="fw-bold text-dark">🔬 現役模型運作診斷：</span>
                         <span class="badge bg-secondary" id="diag-bundle">Bundle: active-v1</span>
                         <span class="badge bg-dark" id="diag-model-id">Model: -</span>
                         <span class="badge" id="diag-pipeline-mode">管線: -</span>
@@ -500,7 +500,11 @@
                 <div class="col-lg-5">
                     <div class="panel h-100">
                         <div class="panel-title d-flex justify-content-between align-items-center">
-                            <span>📋 辨識物件與診斷清單</span>
+                            <span>📋 分模型辨識結果</span>
+                        </div>
+                        <div id="infer-candidate-list" class="mb-3 pb-3 border-bottom" style="display: none;"></div>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong id="infer-active-label">現役模型 · active-v1</strong>
                             <span class="badge bg-light text-muted border fw-normal" id="badge-det-count">0 物件</span>
                         </div>
                         <div class="table-responsive">
