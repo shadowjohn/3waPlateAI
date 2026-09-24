@@ -1,9 +1,6 @@
-"""3waPlateAI Standalone Inference Server (Port 1788)."""
-import io
-import time
-from pathlib import Path
+"""3waPlateAI Standalone API Scaffold (Port 1788)."""
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import cv2
@@ -17,8 +14,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-ROOT = Path(__file__).resolve().parent
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -37,8 +32,8 @@ def index():
     </head>
     <body>
         <div class="card">
-            <h1>🚗 3waPlateAI 獨立車牌辨識服務</h1>
-            <p>服務已成功在 <code>http://localhost:1788</code> 運行！</p>
+            <h1>🚗 3waPlateAI 獨立 API 雛形</h1>
+            <p>服務已啟動，但尚未接上真實推論；此 source-only 發行包不附模型。</p>
             <h3>API 端點：</h3>
             <ul>
                 <li><code>POST /api/predict</code> (Multipart 檔案上傳 <code>file</code>)</li>
@@ -51,30 +46,17 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "3waPlateAI Standalone", "port": 1788}
+    return {"status": "ok", "service": "3waPlateAI Standalone Scaffold", "port": 1788, "inference_ready": False}
 
 @app.post("/api/predict")
 async def predict(file: UploadFile = File(...)):
-    t0 = time.perf_counter()
     content = await file.read()
     nparr = np.frombuffer(content, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image file")
         
-    h, w, _ = img.shape
-    # Default fast inference response
-    t1 = time.perf_counter()
-    latency_ms = round((t1 - t0) * 1000, 1)
-    
-    return {
-        "status": "success",
-        "plate": "3WA-8888",
-        "confidence": 98.6,
-        "latency_ms": latency_ms,
-        "width": w,
-        "height": h,
-    }
+    raise HTTPException(status_code=503, detail="Inference is not configured in this source-only scaffold")
 
 if __name__ == "__main__":
     import uvicorn

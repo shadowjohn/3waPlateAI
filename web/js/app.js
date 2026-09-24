@@ -14,8 +14,8 @@ $(function () {
         "點擊上方按鈕，老司機隨時為您帶路！🏁",
         "貼上截圖 (Ctrl+V) 試試看，老司機一眼就看清！👀",
         "台灣車牌有 34 種合法字元，數字 4 也妥妥支援！🔢",
-        "建置、訓練、發行一鍵搞定，超穩～✨",
-        "發行後搬去其他專案跑 1788 一起發發！🚀"
+        "建置與訓練在本機完成，模型權重不隨原始碼發行。✨",
+        "1788 API 目前是 source-only 雛形，尚未接上真實推論。🚀"
     ];
 
     function setMascotLine(line) {
@@ -919,7 +919,7 @@ $(function () {
 
     // 6. One-Click Release
     $("#btn-release").on("click", function () {
-        setMascotLine("一鍵發行中！即將輸出 Port 1788 獨立服務包！🚀");
+        setMascotLine("正在輸出 Port 1788 source-only API 雛形，不附模型。🚀");
         runTask("/api/release/build", {}, "#term-release", "#prog-release", "#status-box-release", "#btn-release", function (res) {
             $("#release-success-card").fadeIn();
         });

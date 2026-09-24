@@ -5,7 +5,7 @@
 </p>
 
 3waPlateAI 是一套用於台灣車牌風格合成、訓練契約與高速辨識流程的 MIT 授權工具組。
-帶有「3wa 老司機看板娘」領航的一站式視覺化 Web Studio 與一鍵 Release 部署引擎。
+帶有「3wa 老司機看板娘」領航的視覺化 Web Studio；目前的獨立 1788 API 僅是 source-only 雛形，尚未接上真實推論，不可作為正式 Release。
 
 本公開儲存庫刻意維持為**純原始碼**：提供程式、設定、JSON Schema、文件與四張無害的合成 CI fixture，但不發布 checkpoint、訓練權重、ONNX 模型、TensorRT engine 或 Model Bundle。資料權利、法規審查、訓練算力、模型調校與後續維護均由使用者負責。
 

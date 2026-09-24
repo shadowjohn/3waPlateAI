@@ -62,7 +62,7 @@
                     <span>⏱️</span> Benchmark 測試
                 </a>
                 <a class="nav-item" data-tab="release">
-                    <span>🚀</span> 一鍵發行 (Release 1788)
+                    <span>🚀</span> API 雛形 (1788)
                 </a>
             </nav>
         </div>
@@ -154,9 +154,9 @@
                     </div>
                     <div class="col-md-6 col-lg-3">
                         <div class="card p-3 border-0 bg-light">
-                            <h6>4. 一鍵發行 1788</h6>
-                            <p class="small text-muted mb-2">導出獨立 FastAPI 服務包</p>
-                            <button class="btn btn-warning btn-sm" onclick="$('.nav-item[data-tab=release]').click()">發行部署</button>
+                            <h6>4. API 雛形 1788</h6>
+                            <p class="small text-muted mb-2">導出不附模型的 source-only 雛形；尚無真實推論</p>
+                            <button class="btn btn-warning btn-sm" onclick="$('.nav-item[data-tab=release]').click()">查看雛形</button>
                         </div>
                     </div>
                 </div>
@@ -612,15 +612,15 @@
         <section id="section-release" class="page-section" style="display: none;">
             <div class="top-bar">
                 <div>
-                    <h1 class="page-title">一鍵發行 (Release Standalone API)</h1>
-                    <div class="page-desc">一鍵打包獨立輕量 FastAPI 與模型 Bundle，方便搬去其他專案用 localhost:1788 一起發發快速部署！</div>
+                    <h1 class="page-title">獨立 API 雛形 (Port 1788)</h1>
+                    <div class="page-desc">僅打包 source-only FastAPI 雛形，不附模型 Bundle；真實辨識服務尚未完成。</div>
                 </div>
             </div>
 
             <div class="panel">
                 <h5>發行目標設定</h5>
-                <p class="text-muted small">發行包將輸出至 <code>release/3wa_plate_api/</code>，內含 <code>run_api_1788.bat</code> 與極簡 <code>requirements.txt</code>。</p>
-                <button class="btn btn-warning btn-lg fw-bold" id="btn-release">🚀 一鍵打包發行 (Port 1788 一起發發)</button>
+                <p class="text-muted small">source-only 雛形將輸出至 <code>release/3wa_plate_api/</code>，不複製本機模型；有效圖片的推論請求目前回 HTTP 503。</p>
+                <button class="btn btn-warning btn-lg fw-bold" id="btn-release">打包 API 雛形 (不附模型)</button>
 
                 <div class="progress my-3" style="height: 22px;">
                     <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" id="prog-release" role="progressbar" style="width: 0%;">0%</div>
@@ -642,11 +642,11 @@
 
                 <!-- Release Success Card -->
                 <div class="card bg-success-subtle border-success p-4 mt-3" id="release-success-card" style="display: none;">
-                    <h5 class="text-success fw-bold">🎉 發行套件打包成功！</h5>
+                    <h5 class="text-success fw-bold">API source-only 雛形打包完成</h5>
                     <p class="mb-2">發行目錄：<code>release/3wa_plate_api/</code></p>
-                    <p class="mb-3">您可以直接將 <code>release/3wa_plate_api/</code> 整包複製到任何 Python 專案目錄，並在該目錄下執行：</p>
+                    <p class="mb-3">此目錄不附模型，尚未提供真實辨識；可在該目錄下啟動雛形：</p>
                     <pre class="bg-dark text-white p-3 rounded"><code>run_api_1788.bat</code></pre>
-                    <p class="mb-0 small text-muted">獨立 API 服務將立即在 <strong>http://localhost:1788</strong> 啟動對外提供推論服務！</p>
+                    <p class="mb-0 small text-muted">服務可在 <strong>http://localhost:1788</strong> 啟動，但推論請求會回 HTTP 503，不能作為正式辨識結果。</p>
                 </div>
             </div>
         </section>
