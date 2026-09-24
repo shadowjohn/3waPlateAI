@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import re
 from pathlib import Path
 from plateai_trainer.synthetic.dataset import generate_dataset
 from plateai_trainer.synthetic.models import GenerationRequest
@@ -16,10 +17,13 @@ def generate_dataset_task(
     count: int = 10000,
     font: str = "noto_mono",
     seed: int = 42,
-    output_dir_name: str = "demo-10000",
+    output_dir_name: str | None = None,
 ):
     root = workspace_root()
-    out_dir = root / "out" / output_dir_name
+    name = output_dir_name or f"generated-{count}-{uuid.uuid4().hex[:12]}"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", name):
+        raise ValueError("output_name must be a simple directory name")
+    out_dir = root / "out" / name
 
     tm.update_progress(task_id, 1, f"準備生成 {count} 張車牌...")
     tm.append_log(task_id, "=== 3waPlateAI 車牌合成引擎 ===")
@@ -28,10 +32,8 @@ def generate_dataset_task(
     tm.append_log(task_id, f"隨機種子: {seed}")
     tm.append_log(task_id, f"輸出路徑: {out_dir}")
 
-    if out_dir.exists():
-        import shutil
-        tm.append_log(task_id, f"[更新] 清理舊有的 {out_dir.name} 目錄，重新生成標準訓練集...")
-        shutil.rmtree(out_dir)
+    if out_dir.exists() or out_dir.is_symlink():
+        raise FileExistsError(f"輸出目錄已存在，保留原資料：{out_dir}")
 
     font_request = None if font in {"", "noto_mono"} else font
 

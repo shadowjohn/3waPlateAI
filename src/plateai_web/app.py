@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -17,7 +16,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .downloader import download_ezcon_task, download_tlpd_task
 from .evaluator import run_benchmark_task
@@ -96,6 +95,7 @@ def _training_task_document(store: TrainingStore, task: dict[str, Any]) -> dict[
         "logs": logs,
         "log_count": log_count,
         "result": task["result"],
+        "request": task.get("request", {}),
         "error": task["error"],
         "cancel_requested": task["cancel_requested"],
         "heartbeat_at": task["heartbeat_at"],
@@ -136,11 +136,12 @@ def get_system_status() -> dict[str, Any]:
     ezcon_ready = ezcon_path.exists() and (ezcon_path / "summary.json").exists()
     from .downloader import tlpd_is_ready
     tlpd_ready = tlpd_is_ready(tlpd_path)
-    synth_samples = len(list(synth_path.glob("*/*.png"))) if synth_path.exists() else 0
+    synth_samples = sum(item["count"] for item in find_available_datasets(ROOT) if item["eligible"])
 
     # Check model
     bundle_path = ROOT / "models" / "bundles" / "active-v1"
-    model_ready = bundle_path.exists() and (bundle_path / "manifest.json").exists()
+    predictor._load_active_model()
+    model_ready = predictor.load_error is None and predictor.recognizer_session is not None
 
     return {
         "system": {
@@ -156,6 +157,7 @@ def get_system_status() -> dict[str, Any]:
         "model": {
             "ready": model_ready,
             "path": str(bundle_path) if model_ready else None,
+            "error": predictor.load_error,
         },
     }
 
@@ -168,7 +170,9 @@ def _run_build_env_task(task_id: str, tm: Any):
     # Run pip check and verify dependencies
     tm.update_progress(task_id, 30, "檢查安裝依賴與相容性...")
     cmd = [sys.executable, "-m", "pip", "check"]
-    tm.run_subprocess_command(task_id, cmd)
+    if tm.run_subprocess_command(task_id, cmd) != 0:
+        tm.fail_task(task_id, "依賴檢查失敗，請查看日誌並執行 run_build.ps1 修復環境")
+        return
     
     # Check torch and onnxruntime
     tm.update_progress(task_id, 60, "檢查 PyTorch 與 ONNX Runtime...")
@@ -176,16 +180,18 @@ def _run_build_env_task(task_id: str, tm: Any):
         import torch
         tm.append_log(task_id, f"[OK] PyTorch 版本: {torch.__version__}, CUDA 可用: {torch.cuda.is_available()}")
     except Exception as e:
-        tm.append_log(task_id, f"[WARN] PyTorch 檢查警告: {e}")
+        tm.fail_task(task_id, f"PyTorch 載入失敗：{e}")
+        return
         
     try:
         import onnxruntime as ort
         tm.append_log(task_id, f"[OK] ONNX Runtime 版本: {ort.__version__}, Providers: {ort.get_available_providers()}")
     except Exception as e:
-        tm.append_log(task_id, f"[WARN] ONNX Runtime 檢查警告: {e}")
+        tm.fail_task(task_id, f"ONNX Runtime 載入失敗：{e}")
+        return
 
     tm.update_progress(task_id, 100, "環境建置與檢查完成！")
-    tm.complete_task(task_id, result={"status": "ready"}, message="環境建置完成，全部相依套件就緒！")
+    tm.complete_task(task_id, result={"status": "ready"}, message="依賴與執行環境檢查通過（本次未安裝套件）")
 
 
 @app.post("/api/env/build")
@@ -194,9 +200,15 @@ def start_env_build():
     return {"status": "started", "task_id": task_id}
 
 
+class EzconDownloadRequest(BaseModel):
+    acknowledge_unreviewed_license: bool = False
+
+
 @app.post("/api/dataset/fetch_ezcon")
-def start_fetch_ezcon():
-    task_id = task_manager.run_in_background("下載 EZCon 真實車牌資料集", download_ezcon_task)
+def start_fetch_ezcon(req: EzconDownloadRequest):
+    if not req.acknowledge_unreviewed_license:
+        raise HTTPException(status_code=422, detail="請先確認 EZCon 授權尚未審核，僅供本機實驗")
+    task_id = task_manager.run_in_background("下載 EZCon 真實車牌資料集", lambda tid, tm: download_ezcon_task(tid, tm, acknowledged=True))
     return {"status": "started", "task_id": task_id}
 
 
@@ -207,10 +219,10 @@ def start_fetch_tlpd():
 
 
 class GenerateRequest(BaseModel):
-    count: int = 10000
+    count: int = Field(default=10000, ge=1, le=100000)
     font: str = "noto_mono"
     seed: int = 42
-    output_name: str = "demo-10000"
+    output_name: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 @app.post("/api/dataset/generate")
@@ -413,9 +425,12 @@ def start_training(req: TrainRequest, store: TrainingStore = Depends(get_trainin
 
 
 class BenchmarkRequest(BaseModel):
-    dataset: str = "ezcon"
-    rounds: int = 10
-    warmup: int = 2
+    dataset: Literal["ezcon", "user"] = "ezcon"
+    rounds: int = Field(default=1, ge=1, le=20)
+    warmup: int = Field(default=2, ge=0, le=20)
+    model_kind: Literal["active-v1", "native-preview", "fpga-lpr-mit", "compare"] = "active-v1"
+    sample_limit: int = Field(default=20, ge=1, le=100)
+    mode: Literal["both", "crop", "scene"] = "both"
 
 
 @app.post("/api/benchmark/run")
@@ -427,6 +442,9 @@ def start_benchmark(req: BenchmarkRequest):
             target_dataset=req.dataset,
             rounds=req.rounds,
             warmup=req.warmup,
+            model_kind=req.model_kind,
+            sample_limit=req.sample_limit,
+            mode=req.mode,
         )
 
     task_id = task_manager.run_in_background("Benchmark 效能與準確率評測", runner)
@@ -458,17 +476,19 @@ def get_task_info(task_id: str, store: TrainingStore = Depends(get_training_stor
 
 class ActivateModelRequest(BaseModel):
     bundle_name: str | None = None
-    task_id: str | None = None
+    task_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{12}$")
 
 
 @app.post("/api/model/activate")
 def activate_model(req: ActivateModelRequest | None = None):
+    from .activation import activate_bundle
     bundles_root = ROOT / "models" / "bundles"
-    active_dir = bundles_root / "active-v1"
 
     target_bundle_dir: Path | None = None
     if req and req.bundle_name:
-        name = Path(req.bundle_name).name
+        name = req.bundle_name
+        if Path(name).name != name or name in {".", ".."}:
+            raise HTTPException(status_code=400, detail="無效的 Bundle 名稱")
         target_bundle_dir = bundles_root / name
     elif req and req.task_id:
         target_bundle_dir = bundles_root / f"train-{req.task_id}"
@@ -503,22 +523,19 @@ def activate_model(req: ActivateModelRequest | None = None):
     if declaration.get("schema") == "fpga-lpr-onnx-v1":
         raise HTTPException(status_code=400, detail="外部 FPGA-LPR 契約不能啟用為原生 v1 Bundle")
 
-    active_dir.mkdir(parents=True, exist_ok=True)
-    for item in target_bundle_dir.iterdir():
-        if item.is_file():
-            shutil.copy2(item, active_dir / item.name)
-
-    # Reload predictor in memory
     try:
-        predictor._load_active_model()
-    except Exception:
-        pass
+        activation = activate_bundle(ROOT, target_bundle_dir.name, predictor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"啟用未完成，已嘗試復原原模型：{exc}") from exc
 
     return {
         "status": "success",
         "message": f"已成功啟用【{target_bundle_dir.name}】為現役模型 (active-v1)！",
         "bundle": target_bundle_dir.name,
         "bundle_path": str(target_bundle_dir),
+        "backup_path": activation["backup_path"],
     }
 
 

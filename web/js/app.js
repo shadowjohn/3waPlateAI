@@ -4,7 +4,6 @@
 $(function () {
     // State
     let activeTaskId = null;
-    let pollInterval = null;
     let currentPollingTaskId = null;
     let lastLogCount = 0;
 
@@ -38,7 +37,7 @@ $(function () {
         $("#section-" + tab).fadeIn(150);
 
         if (tab === "benchmark") {
-            setTimeout(initBenchmarkChart, 200);
+            setTimeout(function () { initBenchmarkChart(benchmarkRecords); }, 200);
         } else if (tab === "train") {
             loadTrainDatasets();
             checkActiveTraining();
@@ -71,6 +70,7 @@ $(function () {
             $("#stat-tlpd").text(data.datasets.tlpd_ready ? "已下載 (就緒)" : "未下載");
             $("#stat-synth").text(data.datasets.synthetic_count + " 張");
             $("#stat-model").text(data.model.ready ? "ONNX 已就緒" : "未訓練/未匯出");
+            $("#stat-model").attr("title", data.model.error || data.model.path || "尚無可用模型");
         });
     }
     refreshStatus();
@@ -117,7 +117,9 @@ $(function () {
         const $btn = buttonId ? $(buttonId) : null;
 
         if ($btn) {
-            $btn.prop("disabled", true).addClass("disabled");
+            if (!$btn.data("idle-label")) $btn.data("idle-label", $btn.text());
+            $btn.text($btn.data("idle-label")).prop("disabled", true)
+                .removeClass("btn-success btn-danger").addClass("disabled btn-primary");
         }
 
         $term.show();
@@ -167,7 +169,7 @@ $(function () {
     }
 
     function pollTask(taskId, terminalId, progressId, statusBoxId, buttonId, onComplete) {
-        if (pollInterval) clearInterval(pollInterval);
+        let pollInterval = null;
         currentPollingTaskId = taskId;
         const $body = $(terminalId).find(".terminal-body");
         const $prog = $(progressId);
@@ -208,7 +210,7 @@ $(function () {
                     // Update Button State
                     if ($btn) {
                         $btn.prop("disabled", false).removeClass("disabled btn-secondary btn-warning btn-danger").addClass("btn-success");
-                        const origText = $btn.text().replace(/^🚀 |^📥 |^🖨️ |^🏎️ |^✅ /, "");
+                        const origText = ($btn.data("idle-label") || $btn.text()).replace(/^🚀 |^📥 |^🖨️ |^🏎️ |^✅ /, "");
                         $btn.html(`✅ ${origText} (OK)`);
                     }
 
@@ -281,6 +283,8 @@ $(function () {
                     showToast("執行失敗", `【${task.name}】遇到問題，請查看 Detail 紀錄`, false);
                     setMascotLine("哎呀！遇到障礙了，快看終端機 Log 排除一下～⚠️");
                 }
+            }).fail(function () {
+                $(statusBoxId).empty().show().append($("<div>").addClass("alert alert-warning").text("暫時無法取得任務狀態，正在重新連線；尚未確認完成。"));
             });
         }, 800);
     }
@@ -294,7 +298,10 @@ $(function () {
     // 2. Fetch Datasets
     $("#btn-fetch-ezcon").on("click", function () {
         setMascotLine("開始抓取 EZCon 真實車牌資料集，請稍候喔！📦");
-        runTask("/api/dataset/fetch_ezcon", {}, "#term-dataset", "#prog-dataset", "#status-box-dataset", "#btn-fetch-ezcon");
+        if (!$("#ezcon-license-ack").prop("checked")) {
+            showToast("請確認資料用途", "勾選 EZCon 本機實驗授權說明後才能下載", false); return;
+        }
+        runTask("/api/dataset/fetch_ezcon", { acknowledge_unreviewed_license: true }, "#term-dataset", "#prog-dataset", "#status-box-dataset", "#btn-fetch-ezcon");
     });
     $("#btn-fetch-tlpd").on("click", function () {
         setMascotLine("開始同步 TLPD 台灣車輛 3,032 張檢測集！🚗");
@@ -313,6 +320,7 @@ $(function () {
     function loadTrainDatasets() {
         $.getJSON("/api/train/datasets", function (res) {
             const $sel = $("#train-dataset-select");
+            const previous = $sel.val();
             $sel.empty();
             if (!res.datasets || res.datasets.length === 0) {
                 $sel.append('<option value="">自動產生預設訓練集 (2,000 張)</option>');
@@ -320,15 +328,16 @@ $(function () {
             }
             let hasSelected = false;
             res.datasets.forEach(function (d) {
-                const isDemo10k = d.name.indexOf("demo-10000") !== -1;
-                const recText = isDemo10k ? " (10,000 張大樣本 - 推薦)" : ` (${d.count.toLocaleString()} 張)`;
-                const opt = $(`<option value="${d.path}">${d.name}${recText}</option>`);
-                if (isDemo10k && !hasSelected) {
+                const recText = ` (${d.count.toLocaleString()} 張)`;
+                const opt = $("<option>").val(d.path).text(d.name + recText + (d.eligible ? "" : ` — 不可用：${d.reason}`));
+                opt.prop("disabled", !d.eligible).attr("title", d.reason || "資料設定契約符合；開始訓練前會完整驗證樣本");
+                if (d.eligible && (!hasSelected || d.path === previous)) {
                     opt.prop("selected", true);
                     hasSelected = true;
                 }
                 $sel.append(opt);
             });
+            if (!hasSelected) $sel.prepend($("<option>").val("").text("自動產生預設訓練集 (2,000 張)").prop("selected", true));
         });
     }
 
@@ -654,7 +663,8 @@ $(function () {
             task.logs.forEach(function (line) { $body.append($("<div>").text(line)); });
             if ($body[0]) $body.scrollTop($body[0].scrollHeight);
         }
-        updateTrainChartAndStats(history, metrics);
+        const totalEpochs = result.total_epochs || (task.request && task.request.epochs) || (history.length && history[history.length - 1].epoch);
+        updateTrainChartAndStats(history.map(row => ({ ...row, total_epochs: totalEpochs })), metrics ? { ...metrics, total_epochs: totalEpochs } : null);
 
         if (!terminal) {
             const batchText = result.current_batch && result.total_batches
@@ -854,9 +864,10 @@ $(function () {
 
     // 5. Benchmark
     let benchmarkChart = null;
+    let benchmarkRecords = [];
     function initBenchmarkChart(records) {
         const dom = document.getElementById("chart-benchmark");
-        if (!dom) return;
+        if (!dom || !$(dom).is(":visible") || !dom.clientWidth) return;
         if (!benchmarkChart) {
             benchmarkChart = echarts.init(dom);
         }
@@ -866,24 +877,37 @@ $(function () {
         const option = {
             title: { text: "各測試案例平均延遲 (ms)", left: "center", textStyle: { fontSize: 14 } },
             tooltip: { trigger: "axis" },
-            xAxis: { type: "category", data: cases.length ? cases : ["新式客車", "姿態偵測", "CTC解碼", "機車", "批次"], axisLabel: { interval: 0, rotate: 15 } },
+            xAxis: { type: "category", data: cases, axisLabel: { interval: 0, rotate: 15 } },
             yAxis: { type: "value", name: "ms" },
             series: [{
-                data: latencies.length ? latencies : [12.4, 18.2, 5.1, 11.8, 28.5],
+                data: latencies,
                 type: "bar",
                 itemStyle: { color: "#2e6da4" },
                 label: { show: true, position: "top" }
             }]
         };
         benchmarkChart.setOption(option);
+        benchmarkChart.resize();
     }
 
     $("#btn-run-benchmark").on("click", function () {
         setMascotLine("Benchmark 測速與成功率評測中，大家坐穩囉！⏱️");
-        runTask("/api/benchmark/run", { rounds: 10 }, "#term-benchmark", "#prog-benchmark", "#status-box-benchmark", "#btn-run-benchmark", function (res) {
+        const payload = { rounds: Number($("#bench-rounds").val()), warmup: Number($("#bench-warmup").val()),
+            sample_limit: Number($("#bench-samples").val()), model_kind: $("#bench-model").val(),
+            dataset: $("#bench-dataset").val(), mode: $("#bench-mode").val() };
+        if (!Number.isInteger(payload.rounds) || payload.rounds < 1 || payload.rounds > 20 ||
+            !Number.isInteger(payload.warmup) || payload.warmup < 0 || payload.warmup > 20 ||
+            !Number.isInteger(payload.sample_limit) || payload.sample_limit < 1 || payload.sample_limit > 100) {
+            showToast("參數無效", "回合 1–20、暖機 0–20、樣本 1–100", false); return;
+        }
+        $("#benchmark-result-panel").hide();
+        benchmarkRecords = [];
+        runTask("/api/benchmark/run", payload, "#term-benchmark", "#prog-benchmark", "#status-box-benchmark", "#btn-run-benchmark", function (res) {
             if (res && res.results) {
                 renderBenchmarkResults(res.results, res.markdown);
-                initBenchmarkChart(res.results);
+                benchmarkRecords = res.results;
+                $("#benchmark-result-panel").stop(true, true).show();
+                initBenchmarkChart(benchmarkRecords);
             }
         });
     });

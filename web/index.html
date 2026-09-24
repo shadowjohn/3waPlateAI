@@ -168,7 +168,7 @@
             <div class="top-bar">
                 <div>
                     <h1 class="page-title">環境建置 (Environment Setup)</h1>
-                    <div class="page-desc">一鍵檢查並建置本機執行環境、依賴套件與顯卡加速支援</div>
+                    <div class="page-desc">檢查本機依賴與顯卡支援。需要安裝或修復時，請在專案目錄執行 run_build.ps1。</div>
                 </div>
             </div>
 
@@ -182,7 +182,7 @@
                 </div>
                 <div id="status-box-env" class="task-status-box my-2" style="display: none;"></div>
                 <div class="d-flex align-items-center gap-2">
-                    <button class="btn btn-primary" id="btn-build-env">🚀 開始環境建置與依賴檢查</button>
+                    <button class="btn btn-primary" id="btn-build-env">🔎 檢查依賴與執行環境</button>
                     <span id="badge-env" class="badge bg-success p-2" style="display: none;">✅ 已完成 (100%)</span>
                 </div>
 
@@ -216,6 +216,7 @@
                     <div class="panel h-100">
                         <h5>EZCon 台灣車牌真實測試集</h5>
                         <p class="text-muted small">來源：Hugging Face <code>EZCon/taiwan-license-plate-recognition</code><br>包含約 259~297 張真實自用小客車照片，具備文字標註與旋轉框。</p>
+                        <label class="d-block small mb-2"><input type="checkbox" id="ezcon-license-ack"> 我了解此資料授權尚未審核，僅用於本機實驗，不納入發行。</label>
                         <button class="btn btn-primary" id="btn-fetch-ezcon">📥 下載 EZCon 測試集</button>
                     </div>
                 </div>
@@ -257,7 +258,7 @@
             <div class="top-bar">
                 <div>
                     <h1 class="page-title">產生範例車牌 (Synthetic Data Generation)</h1>
-                    <div class="page-desc">使用公路局專屬字型與全台統一規則，大量合成訓練與評測車牌</div>
+                    <div class="page-desc">使用選定字型與全台統一規則合成車牌；每次建立獨立資料集，保留既有資料。</div>
                 </div>
             </div>
 
@@ -281,7 +282,7 @@
                         </select>
                     </div>
                     <div class="col-md-3">
-                        <button class="btn btn-success w-100" id="btn-generate-plates">🖨️ 立即產生 10,000 張範例車牌</button>
+                        <button class="btn btn-success w-100" id="btn-generate-plates">🖨️ 建立新的範例車牌資料集</button>
                     </div>
                 </div>
 
@@ -530,8 +531,8 @@
         <section id="section-benchmark" class="page-section" style="display: none;">
             <div class="top-bar">
                 <div>
-                    <h1 class="page-title">Release API Benchmark</h1>
-                    <div class="page-desc">測試 3waPlateAI 代表查詢與推論效能，數據包含瀏覽器 AJAX 與本地伺服器處理時間</div>
+                    <h1 class="page-title">模型 Benchmark</h1>
+                    <div class="page-desc">固定樣本比較辨識結果與伺服器推論時間；不含模型載入、磁碟與 HTTP。重複回合不增加獨立樣本數。</div>
                 </div>
             </div>
 
@@ -539,11 +540,39 @@
                 <div class="toolbar">
                     <div>
                         <label class="form-label small fw-bold">每組回合</label>
-                        <input type="number" class="form-control" id="bench-rounds" value="10">
+                        <input type="number" class="form-control" id="bench-rounds" value="1" min="1" max="20">
                     </div>
                     <div>
                         <label class="form-label small fw-bold">Warmup</label>
-                        <input type="number" class="form-control" id="bench-warmup" value="2">
+                        <input type="number" class="form-control" id="bench-warmup" value="2" min="0" max="20">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="bench-model" class="form-label">評測模型</label>
+                        <select id="bench-model" class="form-select">
+                            <option value="active-v1">現役 active-v1</option>
+                            <option value="native-preview">本機原生候選</option>
+                            <option value="fpga-lpr-mit">MIT CPM + LPRNet 候選</option>
+                            <option value="compare">A/B：active-v1 與 MIT 候選</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="bench-dataset" class="form-label">固定評測集</label>
+                        <select id="bench-dataset" class="form-select">
+                            <option value="ezcon">EZCon v1 客車（本機診斷）</option>
+                            <option value="user">本機實拍 user_cases.jsonl</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="bench-mode" class="form-label">評測模式</label>
+                        <select id="bench-mode" class="form-select">
+                            <option value="both">GT Crop + 端到端</option>
+                            <option value="crop">GT Crop</option>
+                            <option value="scene">端到端（匹配 GT IoU ≥ 0.5）</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="bench-samples" class="form-label">樣本上限（依檔名固定排序）</label>
+                        <input type="number" class="form-control" id="bench-samples" value="20" min="1" max="100">
                     </div>
                     <div>
                         <button class="btn btn-primary" id="btn-run-benchmark">開始測試</button>
@@ -572,6 +601,7 @@
             <!-- Benchmark Results -->
             <div id="benchmark-result-panel" style="display: none;">
                 <div class="panel">
+                    <p class="small text-muted">本機診斷尚未等同獨立盲測。GT Crop：原生採 GT 透視校正；MIT 採 GT 外接框加 6% 邊界後由 CPM 校正。兩者比較的是各自完整辨識流程。MIT 端到端仍使用本機實驗 Detector。</p>
                     <div class="panel-title">評測統計數據</div>
                     <div class="table-responsive">
                         <table class="table table-hover align-middle" id="table-benchmark">

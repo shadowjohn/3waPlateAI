@@ -15,7 +15,10 @@ from .paths import workspace_root
 from .tasks import TaskManager, task_manager
 
 
-def download_ezcon_task(task_id: str, tm: TaskManager):
+def download_ezcon_task(task_id: str, tm: TaskManager, *, acknowledged: bool = False):
+    if not acknowledged:
+        tm.fail_task(task_id, "請先確認 EZCon 授權尚未審核，僅供本機實驗")
+        return
     root = workspace_root()
     target_dir = root / "datasets" / "restricted" / "ezcon-taiwan-recognition-test"
     

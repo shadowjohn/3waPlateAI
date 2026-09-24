@@ -67,6 +67,20 @@ def test_static_assets(web_client: TestClient):
     assert web_client.get("/js/app.js").status_code == 200
 
 
+@pytest.mark.parametrize("endpoint,payload", [
+    ("/api/benchmark/run", {"rounds": 0}),
+    ("/api/benchmark/run", {"warmup": -1}),
+    ("/api/benchmark/run", {"sample_limit": 101}),
+    ("/api/benchmark/run", {"model_kind": "../custom"}),
+    ("/api/model/activate", {"task_id": "../escape"}),
+    ("/api/dataset/generate", {"count": 0}),
+    ("/api/dataset/generate", {"output_name": "../escape"}),
+    ("/api/dataset/fetch_ezcon", {}),
+])
+def test_studio_rejects_invalid_requests(web_client, endpoint, payload):
+    assert web_client.post(endpoint, json=payload).status_code == 422
+
+
 def test_system_status_and_sample_dataset(web_client: TestClient):
     status = web_client.get("/api/status")
     assert status.status_code == 200

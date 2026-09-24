@@ -1,222 +1,169 @@
-"""Benchmark and evaluation module for performance and accuracy on real road datasets."""
+"""Fixed-input local OCR benchmarks with explicit timing and model identity."""
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import time
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 from plateai_bench import BenchmarkRunner
+from plateai_bench.metrics import calculate_polygon_iou, levenshtein_distance
+from plateai_reader.fpga_lpr import FpgaLprRecognizer, FpgaLprError
+from plateai_reader.fpga_pipeline import FpgaSceneReader, crop_box
+from plateai_reader.rectifier import rectify_plate
+from plateai_reader.runtime import PlateReader, _default_schema_path
+from plateai_shared.bundle import validate_model_bundle
 from .paths import workspace_root
-from .tasks import TaskManager
 
 
 ROOT = workspace_root()
+MODELS = ("active-v1", "native-preview", "fpga-lpr-mit", "compare")
+DATASETS = ("ezcon", "user")
 
 
-def _diagnostic_result(
-    status: str, message: str, **values: object
-) -> dict[str, object]:
-    return {
-        "experimental_diagnostic": True,
-        "m4_5_status": None,
-        "status": status,
-        "message": message,
-        **values,
-    }
-
-
-def _display_latency(value: float | None) -> float | str:
-    return "N/A" if value is None else value
-
-
-def run_benchmark_task(
-    task_id: str,
-    tm: TaskManager,
-    target_dataset: str = "ezcon",
-    rounds: int = 10,
-    warmup: int = 2,
-):
-    root = ROOT
-    tm.update_progress(task_id, 5, "正在準備 Benchmark 評測環境與模型...")
-    tm.append_log(task_id, "=== 3waPlateAI 道路實拍基準評測 (Real-Photo Benchmark) ===")
-    
-    # 1. Locate active bundle
-    bundle_dir = root / "models" / "bundles" / "active-v1"
-    if not (bundle_dir / "recognizer.onnx").exists():
-        message = "找不到指定的診斷模型 Bundle: models/bundles/active-v1"
-        tm.append_log(task_id, f"[錯誤] {message}")
-        tm.complete_task(
-            task_id,
-            result=_diagnostic_result("error", message),
-            message=message,
-        )
-        return
-
-    tm.append_log(task_id, f"載入評測模型 Bundle: {bundle_dir.name}")
-    try:
-        runner = BenchmarkRunner(bundle_dir)
-    except Exception as exc:
-        tm.append_log(task_id, f"[錯誤] 初始化評測器失敗: {exc}")
-        tm.complete_task(
-            task_id,
-            result=_diagnostic_result("error", str(exc)),
-            message=str(exc),
-        )
-        return
-
-    # 2. Prepare test sets
-    ezcon_dir = root / "datasets" / "restricted" / "ezcon-taiwan-recognition-test"
-    user_dir = root / "datasets" / "real_benchmarks"
-
-    # Car records
-    car_records = []
-    if (ezcon_dir / "reader_v1_eligible_test.jsonl").exists():
-        with open(ezcon_dir / "reader_v1_eligible_test.jsonl", encoding="utf-8") as f:
-            car_records = [json.loads(line) for line in f]
-            
-    # Motorcycle records
-    moto_records = []
-    if (user_dir / "user_cases.jsonl").exists():
-        with open(user_dir / "user_cases.jsonl", encoding="utf-8") as f:
-            for line in f:
-                rec = json.loads(line)
-                rec["image"]["path"] = str(Path("datasets/real_benchmarks") / rec["image"]["path"])
-                moto_records.append(rec)
-    if (ezcon_dir / "motorcycle_test.jsonl").exists():
-        with open(ezcon_dir / "motorcycle_test.jsonl", encoding="utf-8") as f:
-            for line in f:
-                rec = json.loads(line)
-                rec["image"]["path"] = str(Path("datasets/restricted/ezcon-taiwan-recognition-test") / rec["image"]["path"])
-                moto_records.append(rec)
-
-    tm.append_log(task_id, f"已載入實拍資料集: 小客車 {len(car_records)} 張, 機車 {len(moto_records)} 張")
-    tm.update_progress(task_id, 20, "開始執行實拍基準評測...")
-
-    test_scenarios = [
-        {
-            "case": "道路實拍客車 (Oracle Crop)",
-            "api": "/api/predict (Oracle)",
-            "query": "Car (LLL-DDDD)",
-            "records": car_records[:25],
-            "dataset_root": ezcon_dir,
-            "run_e2e": False,
-        },
-        {
-            "case": "道路實拍客車 (End-to-End)",
-            "api": "/api/predict (Full)",
-            "query": "Car E2E",
-            "records": car_records[:20],
-            "dataset_root": ezcon_dir,
-            "run_e2e": True,
-        },
-        {
-            "case": "道路實拍機車 (Oracle Crop)",
-            "api": "/api/predict (Oracle)",
-            "query": "Moto (LLL-DDD)",
-            "records": moto_records[:25],
-            "dataset_root": root,
-            "run_e2e": False,
-        },
-        {
-            "case": "道路實拍機車 (End-to-End)",
-            "api": "/api/predict (Full)",
-            "query": "Moto E2E",
-            "records": moto_records[:20],
-            "dataset_root": root,
-            "run_e2e": True,
-        },
-    ]
-
-    results = []
-    today = time.strftime("%Y-%m-%d")
-
-    for s_idx, scenario in enumerate(test_scenarios):
-        sc_name = scenario["case"]
-        sc_records = scenario["records"]
-        tm.append_log(task_id, f"\n[{s_idx+1}/{len(test_scenarios)}] 正在評測項目: {sc_name} (樣本數: {len(sc_records)})...")
-        
-        if not sc_records:
-            tm.append_log(task_id, f"  [警告] 無樣本可用，略過此項。")
-            continue
-
-        def bench_progress(pct: int, msg: str):
-            overall_pct = 20 + int((s_idx + pct / 100.0) / len(test_scenarios) * 75)
-            tm.update_progress(task_id, overall_pct, f"{sc_name}: {msg}")
-
-        try:
-            summary = runner.run_benchmark(
-                records=sc_records,
-                dataset_root=scenario["dataset_root"],
-                dataset_name=sc_name,
-                run_e2e=scenario["run_e2e"],
-                progress_cb=bench_progress,
-            )
-        except Exception as exc:
-            message = f"{sc_name}: {exc}"
-            tm.append_log(task_id, f"  [錯誤] {message}")
-            tm.complete_task(
-                task_id,
-                result=_diagnostic_result("error", message),
-                message=message,
-            )
-            return
-
-        if not scenario["run_e2e"]:
-            acc_str = f"{summary.oracle_accuracy * 100:.1f}% (CER {summary.oracle_cer * 100:.1f}%)"
-            avg_ms = summary.oracle_avg_latency_ms
-            p50_ms = summary.oracle_p50_latency_ms
-            p95_ms = summary.oracle_p95_latency_ms
-            max_ms = None
-            success_count = int(summary.oracle_accuracy * len(sc_records))
+def load_samples(root: Path, dataset: str, limit: int):
+    if dataset == "ezcon":
+        directory = root / "datasets/restricted/ezcon-taiwan-recognition-test"
+        manifest = directory / "reader_v1_eligible_test.jsonl"
+    elif dataset == "user":
+        directory = root / "datasets/real_benchmarks"
+        manifest = directory / "user_cases.jsonl"
+    else:
+        raise ValueError("未知評測集")
+    if not manifest.is_file():
+        raise ValueError(f"缺少評測清單：{manifest.relative_to(root)}")
+    records = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
+    records.sort(key=lambda r: (r["image"]["path"], r["ground_truth"]["canonical"]))
+    samples, identities = [], []
+    for record in records[:limit]:
+        path = (directory / record["image"]["path"]).resolve()
+        path.relative_to(directory.resolve())
+        data = path.read_bytes()
+        bgr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise ValueError(f"影像無法讀取：{path.name}")
+        gt = record["ground_truth"]
+        if "xywhr" in gt:
+            x, y, w, h, angle = gt["xywhr"]
+            corners = cv2.boxPoints(((x, y), (w, h), math.degrees(angle)))
         else:
-            acc_str = f"{summary.e2e_accuracy * 100:.1f}% (檢出 {summary.localization_recall * 100:.1f}%)"
-            avg_ms = summary.e2e_avg_latency_ms
-            p50_ms = None
-            p95_ms = None
-            max_ms = None
-            success_count = int(summary.e2e_accuracy * len(sc_records))
+            corners = np.asarray(gt.get("corners", gt.get("polygon")), dtype=np.float32)
+        if corners.shape != (4, 2) or not np.isfinite(corners).all():
+            raise ValueError(f"無效 GT 四角：{path.name}")
+        expected = gt["canonical"].strip().upper()
+        if not expected:
+            raise ValueError(f"GT 文字為空：{path.name}")
+        samples.append((cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), corners, expected))
+        identities.append({"path": record["image"]["path"], "sha256": hashlib.sha256(data).hexdigest(),
+                           "canonical": expected, "corners": corners.tolist()})
+    if not samples:
+        raise ValueError("評測集沒有樣本，尚未執行評測")
+    fingerprint = hashlib.sha256(json.dumps(identities, sort_keys=True).encode()).hexdigest()
+    return samples, fingerprint
 
-        qps = round(1000.0 / avg_ms, 1) if avg_ms > 0 else 0
-        success_str = f"{success_count}/{len(sc_records)}"
 
-        tm.append_log(task_id, f"  => 成績: 準確率={acc_str} | 平均耗時={avg_ms}ms | QPS={qps}")
-        if scenario["run_e2e"]:
-            tm.append_log(task_id, f"  => 歸因: {summary.attributions}")
+class ModelAdapter:
+    def __init__(self, root: Path, kind: str):
+        self.external = kind == "fpga-lpr-mit"
+        bundle = root / "models/bundles" / ("active-v1" if kind == "active-v1" else "candidate-detector-real-v1")
+        self.ocr = self.scene = self.native = None
+        if self.external:
+            self.ocr = FpgaLprRecognizer(root / "third_party/fpga_lpr")
+            self.scene = FpgaSceneReader(PlateReader(bundle), self.ocr)
+            self.model_id = self.ocr.manifest.model_id
+            identity_files = [root / "third_party/fpga_lpr/manifest.json", bundle / "manifest.json"]
+        else:
+            validate_model_bundle(bundle, _default_schema_path())
+            self.native = BenchmarkRunner(bundle)
+            self.scene = self.native.reader
+            self.model_id = self.native.manifest.get("model_id", kind)
+            identity_files = [bundle / "manifest.json"]
+        self.identity = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in identity_files}
 
-        results.append({
-            "date": today,
-            "case": sc_name,
-            "api": scenario["api"],
-            "query": scenario["query"],
-            "success": success_str,
-            "accuracy": acc_str,
-            "avg_ms": avg_ms,
-            "p50_ms": p50_ms,
-            "p95_ms": p95_ms,
-            "max_ms": max_ms,
-            "qps": qps,
-        })
+    def predict(self, image, corners, mode):
+        if mode == "crop":
+            if self.external:
+                box = [*corners.min(axis=0), *corners.max(axis=0)]
+                try:
+                    return self.ocr.recognize(crop_box(image, box, 0.06)).normalized_text, True
+                except FpgaLprError:
+                    return "", False
+            try:
+                crop = rectify_plate(image, corners).image_rgb
+            except ValueError:
+                return "", False
+            return self.native._eval_single_crop(crop)[0], True
+        if self.scene is None:
+            raise ValueError("此模型缺少 Detector，請選擇 GT Crop 模式")
+        result = self.scene.read(image)
+        candidates = [(calculate_polygon_iou(p.detection.corners_xy, corners),
+                       p.read.normalized_text if self.external else p.decoded.canonical) for p in result.plates]
+        best = max(candidates, key=lambda item: item[0]) if candidates else (0, "")
+        return (best[1], True) if best[0] >= 0.5 else ("", False)
 
-    # Generate Markdown Table
-    md_lines = [
-        "| Date | Case | API | Query | Success | Acc (CER) | Avg ms | p50 ms | p95 ms | Max ms | QPS |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    for r in results:
-        md_lines.append(
-            f"| {r['date']} | {r['case']} | {r['api']} | {r['query']} | {r['success']} | {r['accuracy']} | {r['avg_ms']} | {_display_latency(r['p50_ms'])} | {_display_latency(r['p95_ms'])} | {_display_latency(r['max_ms'])} | {r['qps']} |"
-        )
-    markdown_output = "\n".join(md_lines)
 
-    tm.append_log(task_id, "\n=== 道路實拍基準測試全數完成 ===")
-    tm.update_progress(task_id, 100, "道路實拍 Benchmark 測試完成！")
-    tm.complete_task(
-        task_id,
-        result=_diagnostic_result(
-            "success",
-            "實拍 Benchmark 評測全數完成！",
-            results=results,
-            markdown=markdown_output,
-        ),
-        message="實拍 Benchmark 評測全數完成！",
-    )
+def measure(adapter, samples, mode, rounds, warmup, progress=None):
+    # Warmup is per model/mode, excluded from timing and accuracy.
+    for i in range(warmup):
+        image, corners, _ = samples[i % len(samples)]
+        adapter.predict(image, corners, mode)
+    latencies, exact, errors, total_chars, located = [], 0, 0, 0, 0
+    total = len(samples) * rounds
+    for repeat in range(rounds):
+        for index, (image, corners, expected) in enumerate(samples):
+            started = time.perf_counter()
+            predicted, matched = adapter.predict(image, corners, mode)
+            latencies.append((time.perf_counter() - started) * 1000)
+            exact += int(matched and predicted == expected)
+            located += int(matched)
+            errors += levenshtein_distance(predicted, expected)
+            total_chars += len(expected)
+            if progress:
+                progress((repeat * len(samples) + index + 1) / total)
+    return {"success": f"{exact}/{total}", "accuracy": f"{100*exact/total:.1f}% (CER {100*errors/total_chars:.1f}%)",
+            "sample_count": len(samples), "trials": total, "rounds": rounds, "warmup": warmup,
+            "avg_ms": round(float(np.mean(latencies)), 2), "p50_ms": round(float(np.percentile(latencies, 50)), 2),
+            "p95_ms": round(float(np.percentile(latencies, 95)), 2), "max_ms": round(max(latencies), 2),
+            "qps": round(1000 / max(float(np.mean(latencies)), 1e-9), 2), "matched_trials": located}
+
+
+def run_benchmark_task(task_id, tm, target_dataset="ezcon", rounds=1, warmup=2,
+                       model_kind="active-v1", sample_limit=20, mode="both"):
+    try:
+        if model_kind not in MODELS or target_dataset not in DATASETS or mode not in {"both", "crop", "scene"}:
+            raise ValueError("無效的模型、資料集或評測模式")
+        if not (1 <= rounds <= 20 and 0 <= warmup <= 20 and 1 <= sample_limit <= 100):
+            raise ValueError("評測參數超出範圍")
+        tm.update_progress(task_id, 1, "核對固定評測集與模型...")
+        samples, fingerprint = load_samples(ROOT, target_dataset, sample_limit)
+        kinds = ["active-v1", "fpga-lpr-mit"] if model_kind == "compare" else [model_kind]
+        modes = ["crop", "scene"] if mode == "both" else [mode]
+        tm.append_log(task_id, f"資料集 {target_dataset}：{len(samples)} 個 GT；SHA256 {fingerprint}")
+        tm.append_log(task_id, f"每模型／模式 {rounds} 回合；暖機 {warmup} 次。時間僅含伺服器辨識，不含載入、磁碟及 HTTP。")
+        tm.append_log(task_id, "GT Crop：原生使用 GT 透視校正；MIT 使用 GT 外接框 + 6% margin，再由 CPM 校正。")
+        results = []
+        for kind in kinds:
+            adapter = ModelAdapter(ROOT, kind)
+            for selected_mode in modes:
+                slot = len(results)
+                tm.append_log(task_id, f"開始 {kind} / {selected_mode}")
+                result = measure(adapter, samples, selected_mode, rounds, warmup,
+                                 lambda fraction: tm.update_progress(task_id, 5 + int(90*(slot+fraction)/(len(kinds)*len(modes)))))
+                result.update(case=f"{kind} / {'GT Crop' if selected_mode == 'crop' else 'End-to-End'}",
+                              api="本機推論（非 HTTP）", query=target_dataset, model_id=adapter.model_id,
+                              model_manifests=adapter.identity, dataset_sha256=fingerprint)
+                results.append(result)
+                tm.append_log(task_id, f"{result['case']}：{result['success']}，avg {result['avg_ms']} ms")
+        columns = ["case", "query", "success", "accuracy", "avg_ms", "p50_ms", "p95_ms", "max_ms", "qps"]
+        markdown = f"資料集 SHA256: {fingerprint}\n樣本: {len(samples)}；rounds={rounds}；warmup={warmup}\n獨立準確率：尚未驗收\n\n"
+        markdown += "| " + " | ".join(columns) + " |\n| " + " | ".join(["---"] * len(columns)) + " |\n"
+        markdown += "\n".join("| " + " | ".join(str(r[c]) for c in columns) + " |" for r in results)
+        tm.complete_task(task_id, result={"status": "success", "experimental_diagnostic": True,
+                         "m4_5_status": None, "independent_accuracy": "pending", "results": results,
+                         "dataset_sha256": fingerprint, "markdown": markdown}, message="所選模型與模式評測完成")
+    except Exception as exc:
+        tm.fail_task(task_id, f"評測失敗：{exc}")

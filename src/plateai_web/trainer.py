@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -79,11 +80,39 @@ def _dataset_contract(root: Path, dataset: Path) -> dict[str, object]:
     rules = config_paths.get("rules")
     if not isinstance(charset, str) or not isinstance(rules, str):
         raise ValueError(f"dataset generation_config.json lacks charset/rules paths: {dataset}")
+    def recorded_config(value: str, kind: str) -> Path:
+        path = Path(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"dataset {kind} must reference a bundled configuration file")
+        hashes = document.get("config_sha256", {})
+        expected = hashes.get(kind) if isinstance(hashes, dict) else None
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError(f"dataset 缺少 {kind} 設定雜湊")
+        folder = "charsets" if kind == "charset" else "plate_rules"
+        bases = [root, source_checkout_root(), _PACKAGED_DATA_ROOT]
+        for base in bases:
+            if base is None:
+                continue
+            directory = base / "configs" / folder
+            candidates = [base / path, directory / path.name, *sorted(directory.glob("*"))]
+            for candidate in candidates:
+                if candidate.is_file() and not candidate.is_symlink():
+                    try:
+                        candidate.resolve().relative_to(base.resolve())
+                    except ValueError:
+                        continue
+                    if hashlib.sha256(candidate.read_bytes()).hexdigest() == expected:
+                        return candidate.resolve()
+        raise ValueError(f"找不到與資料相符的 {kind} 設定（sha256 {expected[:12]}）")
+
+    for required in ("labels.txt", "metadata.jsonl", "summary.json"):
+        if not (dataset / required).is_file():
+            raise ValueError(f"dataset 缺少 {required}")
     return {
         "path": dataset,
         "seed": document["seed"],
-        "charset": _resolve_config_path(root, charset, field="dataset charset"),
-        "rules": _resolve_config_path(root, rules, field="dataset rules"),
+        "charset": recorded_config(charset, "charset"),
+        "rules": recorded_config(rules, "rules"),
     }
 
 
@@ -159,6 +188,10 @@ def validate_training_request(root: Path, task_id: str, request: dict) -> dict:
     else:
         train_contract = _dataset_contract(root, train_directory)
 
+    from plateai_trainer.training.dataset import M1CropDataset
+    if train_directory.is_dir():
+        M1CropDataset(train_directory, train_contract["charset"], train_contract["rules"])
+
     validation_value = request.get("validation_dataset")
     generated_validation = False
     if validation_value is not None:
@@ -191,6 +224,9 @@ def validate_training_request(root: Path, task_id: str, request: dict) -> dict:
                     f"generated validation output already exists: {validation_directory}"
                 )
 
+    if validation_contract is not None:
+        M1CropDataset(validation_directory, validation_contract["charset"], validation_contract["rules"])
+
     return {
         "task_id": task_id,
         "epochs": _positive_integer(request.get("epochs"), field="epochs", default=5, maximum=100),
@@ -220,6 +256,8 @@ def _generate_default_dataset(
     on_progress: Callable[[TrainingProgress], None],
     check_cancelled: Callable[[], None],
     phase: str,
+    charset_path: Path | None = None,
+    rules_path: Path | None = None,
 ) -> None:
     from plateai_trainer.synthetic.dataset import generate_dataset
     from plateai_trainer.synthetic.models import GenerationRequest
@@ -242,8 +280,8 @@ def _generate_default_dataset(
             count=count,
             seed=seed,
             output=output,
-            charset_path=_resolve_config_path(root, _DEFAULT_CHARSET, field="default charset"),
-            rules_path=_resolve_config_path(root, _DEFAULT_RULES, field="default rules"),
+            charset_path=charset_path or _resolve_config_path(root, _DEFAULT_CHARSET, field="default charset"),
+            rules_path=rules_path or _resolve_config_path(root, _DEFAULT_RULES, field="default rules"),
             template_path=_resolve_config_path(root, _DEFAULT_TEMPLATE, field="default template"),
             augmentation_path=_resolve_config_path(
                 root, _DEFAULT_AUGMENTATION, field="default augmentation"
@@ -308,6 +346,8 @@ def run_training_pipeline(
             on_progress=on_progress,
             check_cancelled=check_cancelled,
             phase="generating_validation",
+            charset_path=validated["charset_path"],
+            rules_path=validated["rules_path"],
         )
 
     check_cancelled()
@@ -367,12 +407,19 @@ def find_available_datasets(root: Path) -> list[dict[str, Any]]:
             images_dir = p / "images"
             count = len(list(images_dir.glob("*.png"))) if images_dir.exists() else len(list(p.glob("*.png")))
             if count > 0:
+                try:
+                    _dataset_contract(root, p)
+                    eligible, reason = True, None
+                except (ValueError, OSError) as exc:
+                    eligible, reason = False, str(exc)
                 candidates.append({
                     "name": p.name,
                     "path": str(p),
                     "count": count,
+                    "eligible": eligible,
+                    "reason": reason,
                 })
-    candidates.sort(key=lambda x: (x["name"] == "demo-10000", x["count"]), reverse=True)
+    candidates.sort(key=lambda x: (x["eligible"], not x["name"].lower().startswith("val"), x["count"]), reverse=True)
     return candidates
 
 
