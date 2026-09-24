@@ -121,6 +121,21 @@ def _heatmap_corners(heatmap: NDArray[np.float32]) -> NDArray[np.float32]:
     return points[[np.argmin(sums), np.argmin(diffs), np.argmax(sums), np.argmax(diffs)]]
 
 
+def _validate_author_corners(corners: NDArray[np.float32]) -> None:
+    """Reject impossible warps without changing the author's valid point order."""
+
+    if (
+        corners.shape != (4, 2)
+        or not np.isfinite(corners).all()
+        or (corners < 0).any()
+        or (corners > 99).any()
+        or np.unique(corners, axis=0).shape[0] != 4
+        or not cv2.isContourConvex(corners)
+        or cv2.contourArea(corners) < 4.0
+    ):
+        raise FpgaLprError("invalid_corners")
+
+
 class FpgaLprRecognizer:
     """One fixed external model pair; never a native v1 model bundle."""
 
@@ -190,6 +205,8 @@ class FpgaLprRecognizer:
                 corners = normalize_corners(corners, (100, 100)).points_xy
             except InvalidCornersError as exc:
                 raise FpgaLprError("invalid_corners") from exc
+        else:
+            _validate_author_corners(corners)
         destination = np.float32([[0, 0], [93, 0], [93, 47], [0, 47]])
         try:
             transform = cv2.getPerspectiveTransform(corners.astype(np.float32), destination)
@@ -209,6 +226,7 @@ class FpgaLprRecognizer:
             raise FpgaLprError("lprnet_inference_failed") from exc
         if len(lpr_outputs) != 1 or not isinstance(lpr_outputs[0], np.ndarray) or lpr_outputs[0].shape != (1, 37, 18):
             raise FpgaLprError("invalid_lpr_logits")
+        lpr_done = time.perf_counter()
         raw_text = decode_fpga_logits(lpr_outputs[0][0], FPGA_CHARS)
         finished = time.perf_counter()
         return FpgaLprRead(
@@ -220,6 +238,8 @@ class FpgaLprRecognizer:
                 "preprocess": (preprocessed - started) * 1000,
                 "cpm": (cpm_done - preprocessed) * 1000,
                 "rectify": (rectified - cpm_done) * 1000,
+                "lprnet": (lpr_done - rectified) * 1000,
+                "decode": (finished - lpr_done) * 1000,
                 "lprnet_decode": (finished - rectified) * 1000,
                 "total": (finished - started) * 1000,
             },

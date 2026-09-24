@@ -96,6 +96,10 @@ canonical plate string or image hash occurs in both `dev` and `holdout`.
 Audited JSONL rows require `image`, `sha256`, `canonical`, `vehicle_class`,
 `split`, `crop_xyxy`, and `source_kind`. `v1_passenger` is scored separately;
 motorcycle results must not inflate the private-passenger v1 figure.
+In `scene` mode, a string is scored against its annotated plate only if the
+detected bounding box reaches IoU >= 0.5 with that row's `crop_xyxy`. Other
+recognized strings remain in `all_scene_predictions` for diagnosis and cannot
+inflate end-to-end exact-match counts.
 
 The `--tlpd-replay-root` shortcut derives *provisional* labels from TLPD
 filenames and explicitly records `training_source_replay`. Its entire output

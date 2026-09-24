@@ -256,6 +256,19 @@ def test_external_manifest_cannot_be_activated_as_native_bundle(
     assert not (tmp_path / "models" / "bundles" / "active-v1").exists()
 
 
+@pytest.mark.parametrize("manifest_text", ["null", "[]"])
+def test_activation_rejects_non_object_manifest(
+    web_client: TestClient, tmp_path: Path, manifest_text: str
+) -> None:
+    bundle = tmp_path / "models" / "bundles" / "candidate-nonobject"
+    bundle.mkdir(parents=True)
+    (bundle / "recognizer.onnx").write_bytes(b"not a native recognizer")
+    (bundle / "manifest.json").write_text(manifest_text, encoding="utf-8")
+    response = web_client.post("/api/model/activate", json={"bundle_name": "candidate-nonobject"})
+    assert response.status_code == 400
+    assert not (tmp_path / "models" / "bundles" / "active-v1").exists()
+
+
 def test_predict_plate_reader_contract_alignment(monkeypatch: pytest.MonkeyPatch):
     import numpy as np
     from plateai_web.predictor import predictor

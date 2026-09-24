@@ -105,3 +105,51 @@ def test_tlpd_filename_is_only_training_source_replay(tmp_path: Path) -> None:
     assert rows[0].canonical == "MDX9717"
     assert rows[0].source_kind == "training_source_replay"
     assert rows[0].split == "dev"
+
+
+def test_scene_exact_requires_spatially_matching_detection(tmp_path: Path) -> None:
+    image, sha = _image(tmp_path, "scene.png")
+    row = _row(image, sha, "ABC1234", crop_xyxy=[0, 0, 10, 10])
+    entries = load_audited_manifest(_manifest(tmp_path, [row]))
+
+    class FakeSceneReader:
+        providers = ("CPUExecutionProvider",)
+
+        def read(self, _image):
+            return SimpleNamespace(
+                plates=(SimpleNamespace(
+                    detection=SimpleNamespace(bbox_xyxy=np.array([20, 0, 30, 10], np.float32)),
+                    read=SimpleNamespace(normalized_text="ABC1234"),
+                ),), timings_ms={"total": 2.0},
+            )
+
+    report = evaluate_entries(FakeSceneReader(), entries, mode="scene")
+    assert report.overall.exact == 0
+    assert report.results[0].predicted == ()
+    assert report.results[0].all_scene_predictions == ("ABC1234",)
+    assert report.results[0].error == "locator:no_target_match"
+
+
+def test_scene_exact_uses_matching_box_in_multiplate_image(tmp_path: Path) -> None:
+    image, sha = _image(tmp_path, "scene.png")
+    entries = load_audited_manifest(_manifest(tmp_path, [
+        _row(image, sha, "ABC1234", crop_xyxy=[0, 0, 10, 10]),
+    ]))
+
+    class FakeSceneReader:
+        def read(self, _image):
+            def plate(box, text):
+                return SimpleNamespace(
+                    detection=SimpleNamespace(bbox_xyxy=np.array(box, np.float32)),
+                    read=SimpleNamespace(normalized_text=text),
+                )
+
+            return SimpleNamespace(plates=(
+                plate([20, 0, 30, 10], "WRONG"),
+                plate([0, 0, 10, 10], "ABC1234"),
+            ), timings_ms={"total": 2.0})
+
+    report = evaluate_entries(FakeSceneReader(), entries, mode="scene")
+    assert report.overall.exact == 1
+    assert report.results[0].predicted == ("ABC1234",)
+    assert report.results[0].matched_iou == 1.0

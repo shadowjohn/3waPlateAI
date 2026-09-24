@@ -498,6 +498,8 @@ def activate_model(req: ActivateModelRequest | None = None):
         declaration = json.loads(manifest_file.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Bundle manifest 無效") from exc
+    if not isinstance(declaration, dict):
+        raise HTTPException(status_code=400, detail="Bundle manifest 無效")
     if declaration.get("schema") == "fpga-lpr-onnx-v1":
         raise HTTPException(status_code=400, detail="外部 FPGA-LPR 契約不能啟用為原生 v1 Bundle")
 

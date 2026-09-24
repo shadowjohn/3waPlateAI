@@ -1003,10 +1003,14 @@ $(function () {
                 "本機 A/B 定位對照（未啟用、不影響現役模型）"
         );
         const $counts = $("<div>").text(
-            `現役：${(preview && preview.active_bundle) || "active-v1"}；候選：${label}；候選 ${accepted.length} 通過／${rejected.length} 拒絕`
+            isExternalOcr
+                ? `現役：${(preview && preview.active_bundle) || "active-v1"}；候選：${label}；OCR 輸出 ${accepted.length} 筆／拒絕 ${rejected.length} 筆（尚未驗證為真車牌）`
+                : `現役：${(preview && preview.active_bundle) || "active-v1"}；候選：${label}；候選 ${accepted.length} 通過／${rejected.length} 拒絕`
         );
         const $notice = $("<div>").addClass("mt-1 text-danger").text(
-            "紫色實線＝候選通過辨識；紫色虛線＝候選定位到但未通過 OCR，僅供定位診斷。"
+            isExternalOcr
+                ? "紫色實線＝OCR 有輸出，仍可能是碎片或誤報；紫色虛線＝候選定位到但 OCR 未輸出。"
+                : "紫色實線＝候選通過辨識；紫色虛線＝候選定位到但未通過 OCR，僅供定位診斷。"
         );
         $summary.append($title, $counts, $notice);
         if (isExternalOcr) {

@@ -14,6 +14,9 @@ from plateai_reader.fpga_lpr import (
     FpgaLprRecognizer,
     decode_fpga_logits,
 )
+from plateai_reader.fpga_pipeline import FpgaSceneReader
+from plateai_reader.runtime import DetectionResult
+from plateai_shared.detection import PlateDetection
 
 
 ASSETS = Path(__file__).resolve().parents[2] / "third_party" / "fpga_lpr"
@@ -85,6 +88,8 @@ def test_rgb_input_is_converted_to_author_bgr_and_returns_rgb_crop() -> None:
     assert result.score_kind == "uncalibrated"
     assert result.aligned_rgb.shape == (48, 94, 3)
     assert result.aligned_rgb[24, 47, 0] == 255
+    assert result.timings_ms["lprnet"] >= 0
+    assert result.timings_ms["decode"] >= 0
 
 
 def test_invalid_roi_is_rejected_before_inference() -> None:
@@ -104,6 +109,26 @@ def test_safe_policy_rejects_duplicate_corners_but_accepts_shuffled_valid_shape(
     shuffled = ((45, 30), (5, 30), (5, 10), (45, 10))
     good_reader, _, _ = _recognizer(shuffled)
     assert good_reader.recognize(np.full((80, 160, 3), 255, np.uint8), corner_policy="safe").raw_text == "AA"
+
+
+def test_compat_and_scene_reject_degenerate_real_cpm_corners() -> None:
+    bad_reader, _, lpr = _recognizer(((5, 10), (5, 10), (45, 30), (5, 30)))
+    image = np.full((80, 160, 3), 255, np.uint8)
+    with pytest.raises(FpgaLprError, match="invalid_corners"):
+        bad_reader.recognize(image, corner_policy="compat")
+    detection = PlateDetection(
+        bbox_xyxy=np.array([5, 5, 100, 50], np.float32), confidence=0.9,
+        corners_xy=np.array([[5, 5], [100, 5], [100, 50], [5, 50]], np.float32),
+    )
+
+    class FakeDetector:
+        def detect(self, _image):
+            return DetectionResult((detection,), ("CPUExecutionProvider",), 1.0)
+
+    scene = FpgaSceneReader(FakeDetector(), bad_reader).read(image)
+    assert scene.plates == ()
+    assert [item.reason for item in scene.rejections] == ["invalid_corners"]
+    assert lpr.inputs == []
 
 
 def test_runtime_rejects_wrong_onnx_metadata() -> None:

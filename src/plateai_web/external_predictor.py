@@ -90,9 +90,12 @@ class ExternalPredictorEngine:
                     onnx_inference_ms=round(
                         sum(
                             item.read.timings_ms.get("cpm", 0.0)
-                            + item.read.timings_ms.get("lprnet_decode", 0.0)
+                            + item.read.timings_ms.get("lprnet", 0.0)
                             for item in scene.plates
                         ), 1
+                    ),
+                    ctc_decoding_ms=round(
+                        sum(item.read.timings_ms.get("decode", 0.0) for item in scene.plates), 1
                     ),
                 )
                 diagnostics["candidate_count"] = len(scene.plates) + len(scene.rejections)

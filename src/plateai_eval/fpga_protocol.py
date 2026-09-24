@@ -53,6 +53,8 @@ class ImageResult:
     source_kind: str
     timings_ms: dict[str, float]
     error: str | None
+    all_scene_predictions: tuple[str, ...] = ()
+    matched_iou: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +150,22 @@ def _counts(results: Sequence[ImageResult]) -> Counts:
     return Counts(len(results), sum(result.exact for result in results), sum(result.empty for result in results))
 
 
+def _box_iou(left: Sequence[float], right: Sequence[float]) -> float:
+    try:
+        a = np.asarray(left, dtype=np.float64)
+        b = np.asarray(right, dtype=np.float64)
+    except (TypeError, ValueError):
+        return 0.0
+    if a.shape != (4,) or b.shape != (4,) or not np.isfinite(a).all() or not np.isfinite(b).all():
+        return 0.0
+    if a[2] <= a[0] or a[3] <= a[1] or b[2] <= b[0] or b[3] <= b[1]:
+        return 0.0
+    intersection = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    area_a = (a[2] - a[0]) * (a[3] - a[1])
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    return intersection / (area_a + area_b - intersection)
+
+
 def evaluate_entries(
     reader: CropReader | SceneReader,
     entries: Sequence[AuditedPlate],
@@ -163,6 +181,8 @@ def evaluate_entries(
         started = time.perf_counter()
         error: str | None = None
         predicted: tuple[str, ...] = ()
+        all_scene_predictions: tuple[str, ...] = ()
+        matched_iou: float | None = None
         timings: dict[str, float] = {}
         if mode == "crop":
             left, top, right, bottom = row.crop_xyxy
@@ -177,9 +197,26 @@ def evaluate_entries(
             except Exception as exc:
                 error = f"recognizer:{type(exc).__name__}"
         else:
+            left, top, right, bottom = row.crop_xyxy
+            if not (0 <= left < right <= rgb.shape[1] and 0 <= top < bottom <= rgb.shape[0]):
+                raise EvaluationInputError("invalid_crop")
             try:
                 scene = reader.read(rgb)
-                predicted = tuple(str(plate.read.normalized_text) for plate in scene.plates if plate.read.normalized_text)
+                all_scene_predictions = tuple(
+                    str(plate.read.normalized_text) for plate in scene.plates if plate.read.normalized_text
+                )
+                matches = tuple(
+                    ((
+                        _box_iou(row.crop_xyxy, plate.detection.bbox_xyxy),
+                        str(plate.read.normalized_text),
+                    ) for plate in scene.plates),
+                )
+                best = max(matches, key=lambda item: item[0]) if matches else None
+                if best is not None and best[0] >= 0.5:
+                    matched_iou = best[0]
+                    predicted = (best[1],) if best[1] else ()
+                else:
+                    error = "locator:no_target_match"
                 timings = dict(scene.timings_ms)
             except Exception as exc:
                 error = f"scene:{type(exc).__name__}"
@@ -189,6 +226,7 @@ def evaluate_entries(
             exact=row.canonical in predicted, empty=not predicted,
             vehicle_class=row.vehicle_class, split=row.split,
             source_kind=row.source_kind, timings_ms=timings, error=error,
+            all_scene_predictions=all_scene_predictions, matched_iou=matched_iou,
         ))
     results_tuple = tuple(results)
     # A truly independent score needs a disjoint, manually checked holdout;

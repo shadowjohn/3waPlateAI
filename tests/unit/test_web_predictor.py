@@ -164,7 +164,7 @@ def test_external_predictor_reports_text_without_fabricated_confidence(monkeypat
         raw_text='ABC1234', normalized_text='ABC1234',
         aligned_rgb=np.full((48, 94, 3), 255, np.uint8),
         roi_corners_xy=np.array([[0, 0], [93, 0], [93, 47], [0, 47]], np.float32),
-        timings_ms={'total': 4.0, 'cpm': 1.0, 'lprnet_decode': 2.0},
+        timings_ms={'total': 4.0, 'cpm': 1.0, 'lprnet': 1.5, 'decode': 0.5, 'lprnet_decode': 2.0},
     )
     scene = FpgaSceneResult(
         plates=(FpgaScenePlate(detection, read),), rejections=(),
@@ -186,3 +186,5 @@ def test_external_predictor_reports_text_without_fabricated_confidence(monkeypat
     assert record['score_kind'] == 'uncalibrated'
     assert response['diagnostics']['recognizer_type'] == 'fpga-lpr-mit'
     assert response['diagnostics']['detector_bundle'] == 'candidate-detector-real-v1'
+    assert response['diagnostics']['timing_breakdown']['onnx_inference_ms'] == 2.5
+    assert response['diagnostics']['timing_breakdown']['ctc_decoding_ms'] == 0.5
