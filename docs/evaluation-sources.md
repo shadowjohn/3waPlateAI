@@ -87,3 +87,26 @@ The public MIT [TLPD Dataset Card](https://huggingface.co/datasets/evan6007/TLPD
 documents polygon annotations rather than text labels. The CCPD publisher
 documents filename-embedded ground truth and its MIT grant. The UFPR publisher
 documents its request-controlled non-commercial terms.
+
+## Maintained MIT OCR evaluation protocol (2026-09-24)
+
+`tools/evaluate_fpga_lpr.py` evaluates the attributed CPM + LPRNet ONNX pair.
+It checks each image SHA-256 before decoding and refuses a manifest when a
+canonical plate string or image hash occurs in both `dev` and `holdout`.
+Audited JSONL rows require `image`, `sha256`, `canonical`, `vehicle_class`,
+`split`, `crop_xyxy`, and `source_kind`. `v1_passenger` is scored separately;
+motorcycle results must not inflate the private-passenger v1 figure.
+
+The `--tlpd-replay-root` shortcut derives *provisional* labels from TLPD
+filenames and explicitly records `training_source_replay`. Its entire output
+is development diagnostics, even if exact-match is high, because the author
+trained the released OCR weights on TLPD. Results and any private photos go
+only under ignored `runs/fpga-lpr-eval/`. Never relabel TLPD replay as an
+independent holdout or use it to select production settings.
+
+Compare `corner_policy=compat` then `safe` on a manually checked development
+set, and only then vary scene ROI margin `0.06` versus `0.10`, changing one
+factor per run. Read the frozen unseen holdout once after selecting settings.
+Until such a disjoint, manually audited set exists, independent real-photo
+accuracy remains **pending**; the user-supplied MDX-9717 browser example is a
+functional diagnostic, not a blind benchmark or private-passenger test.
