@@ -79,3 +79,85 @@ class PlateCTCNet(nn.Module):
         encoded = self.encoder(images)
         temporal = self.temporal(encoded.squeeze(2))
         return self.classifier(temporal).transpose(1, 2)
+
+
+class ResBlock(nn.Module):
+    """2D Residual block for feature extraction."""
+
+    def __init__(self, in_channels: int, out_channels: int) -> None:
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+        )
+        self.shortcut = (
+            nn.Sequential()
+            if in_channels == out_channels
+            else nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
+                nn.BatchNorm2d(out_channels),
+            )
+        )
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.relu(self.conv(x) + self.shortcut(x))
+
+
+class PlateCTCNetV2(nn.Module):
+    """Retest V2 recognizer with residual backbone and learned vertical compression."""
+
+    def __init__(self, class_count: int = 35) -> None:
+        super().__init__()
+        if class_count < 2:
+            raise ValueError("PlateCTCNetV2 requires at least 2 classes")
+        self.class_count = class_count
+        self.stem = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d((2, 2)),  # 64x160 -> 32x80
+        )
+        self.stage1 = nn.Sequential(
+            ResBlock(64, 64),
+            nn.MaxPool2d((2, 1)),  # 32x80 -> 16x80
+        )
+        self.stage2 = nn.Sequential(
+            ResBlock(64, 128),
+            nn.MaxPool2d((2, 1)),  # 16x80 -> 8x80
+        )
+        self.stage3 = nn.Sequential(
+            ResBlock(128, 256),
+            nn.MaxPool2d((2, 1)),  # 8x80 -> 4x80
+        )
+        self.height_collapse = nn.Sequential(
+            nn.Conv2d(256, 256, kernel_size=(4, 1), bias=False),  # 4x80 -> 1x80 learned
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+        )
+        self.temporal = nn.Sequential(
+            nn.Conv1d(256, 256, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(256, 256, kernel_size=3, padding=2, dilation=2, bias=False),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv1d(256, 256, kernel_size=3, padding=4, dilation=4, bias=False),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+        )
+        self.classifier = nn.Conv1d(256, class_count, kernel_size=1)
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        if images.ndim != 4 or tuple(images.shape[1:]) != (1, 64, 160):
+            raise ValueError("PlateCTCNetV2 expects input shaped [batch, 1, 64, 160]")
+        x = self.stem(images)
+        x = self.stage1(x)
+        x = self.stage2(x)
+        x = self.stage3(x)
+        x = self.height_collapse(x)
+        x = self.temporal(x.squeeze(2))
+        return self.classifier(x).transpose(1, 2)

@@ -53,15 +53,19 @@ privacy, and redistribution conditions with every local copy.
   the F6S-992 evaluation photo also appeared as upstream training row 1257 and
   was excluded. Full reasons and held-out hashes are in local `import_report.json`.
 
-### TLPD — MIT Taiwan detector and rectifier evaluation
+### TLPD — MIT Taiwan detector, rectifier, and provisional OCR evaluation
 
 - Source: <https://huggingface.co/datasets/evan6007/TLPD>
 - Pinned revision: `00f9ae2fa3d186bcf74e7f6ef4f48280181d6e85`.
 - The Dataset Card declares MIT; it contains 3,032 Taiwan vehicle images with
   paired LabelMe plate polygons.
-- The annotations label the polygon as `carplate`; they do not contain the
-  displayed plate string. Use it to score M3b detection and M3a four-corner
-  rectification, not recognizer exact-match accuracy.
+- The LabelMe polygons label the plate as `carplate` but do not contain its
+  transcription. Image filename stems appear to encode plate strings (for
+  example, `0097LK.jpg` shows `0097-LK`); trailing `(n)` groups denote image
+  variants and are not plate characters. Filename-derived text is provisional
+  OCR ground truth: audit exceptions and group variants of the same plate before
+  scoring. The public author recognizer was trained on TLPD, so replaying the
+  full dataset with those weights is not an independent generalization test.
 - A spaced sample of the pinned images contains tight plate crops, not just
   full-vehicle scenes. Do not treat the dataset name as proof that it supplies
   full-scene Detector training coverage; inspect image framing before using it.
