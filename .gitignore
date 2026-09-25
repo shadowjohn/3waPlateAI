@@ -1,6 +1,7 @@
 .venv/
 .venv-verify/
 .venv-font-build/
+.venv-service/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -28,6 +29,7 @@ test_data/
 *.trt
 *.weights
 models/bundles/
+models/private/
 checkpoints/
 runs/
 

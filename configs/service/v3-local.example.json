@@ -1,0 +1,25 @@
+{
+  "model_id": "pose-pilot-067b4c45-ppocrv3-en-bbox5-v1",
+  "device": "auto",
+  "threads": 4,
+  "detector": {
+    "path": "../../models/private/pose-pilot.pt",
+    "sha256": "067b4c457344946b50ea0d792000de919d2eee2924d32be41bc3ff1c6cc99e1f"
+  },
+  "ocr_detection": {
+    "path": "../../models/private/PP-OCRv3_mobile_det",
+    "files": {
+      "inference.json": "26c59bd5c5bea8b63efecb9115c35b7eea300081bd8703dc464da4aa19825b98",
+      "inference.pdiparams": "7e9518c6ab706fe87842a8de1c098f990e67f9212b67c9ef8bc4bca6dc17b91a",
+      "inference.yml": "ccfc8b069bb0d5505ecefa6defc54140c10bf0194fde5395aba0a1a99e5ea90f"
+    }
+  },
+  "ocr_recognition": {
+    "path": "../../models/private/en_PP-OCRv3_mobile_rec",
+    "files": {
+      "inference.json": "685d97f4ea8826e4d91f592658040d1d1b5f1c1f3db9a28418bd2ff55c3d20d4",
+      "inference.pdiparams": "2cea2de604d8a75fd9151b54ea2dd027659fb8cb777cde377224581110dbff13",
+      "inference.yml": "cf1786f3f0ec9f2326b1846054cbbbe578a5c35e6837459a4a0a053671ddf882"
+    }
+  }
+}

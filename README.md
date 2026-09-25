@@ -5,11 +5,13 @@
 </p>
 
 3waPlateAI 是一套用於台灣車牌風格合成、訓練契約與高速辨識流程的 MIT 授權工具組。
-帶有「3wa 老司機看板娘」領航的視覺化 Web Studio；目前的獨立 1788 API 僅是 source-only 雛形，尚未接上真實推論，不可作為正式 Release。
+帶有「3wa 老司機看板娘」領航的視覺化 Web Studio；新增獨立 1788 **本機測試 API**（YOLO bbox＋PaddleOCR v3，檔案／Base64、多牌 JSON）。模型權利與完整部署驗收仍待放行，不可作為正式 Release；舊 `release/3wa_plate_api` 目錄仍是 source-only 雛形。
 
 本公開儲存庫刻意維持為**純原始碼**：提供程式、設定、JSON Schema、文件與四張無害的合成 CI fixture，但不發布 checkpoint、訓練權重、ONNX 模型、TensorRT engine 或 Model Bundle。資料權利、法規審查、訓練算力、模型調校與後續維護均由使用者負責。
 
 M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓練與 ONNX 匯出；M3a 提供確定性的四角點校正；M3b 提供本機原生姿態偵測工作流；M4 提供本機完整 Bundle Reader 核心。效能基準、服務化與正式部署仍屬後續工作；詳細設計請見[設計規格](docs/superpowers/specs/2026-09-21-3wa-plate-ai-design.md)。
+
+參考資料來源請見 [reference.md](reference.md)。
 
 ## 目前內容
 
@@ -19,10 +21,15 @@ M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓�
 | `plateai_trainer.synthetic` | 規則抽樣、乾淨渲染、確定性增強與交易式資料輸出 | 可用 |
 | `plateai_reader` | 已驗證的本機 ONNX session、偵測後處理、校正、批次辨識與受規則限制的 CTC 解碼 | M4 Reader 核心可用，未附模型 Bundle |
 | Model Bundle | 模型、字元集、規則、張量、批次、解碼與校正的雜湊驗證契約 | Schema 可用，未發布 Bundle |
+| `plateai_service` | 原生 YOLO＋PaddleOCR 常駐、檔案／Base64、多牌 JSON、GPU／CPU 與容量保護 | 1788 本機 HTTP 已驗證；1688 整合與正式發行未完成 |
 
 ## 快速開始
 
 開發與 CI 支援 CPython 3.11。
+
+### 獨立車牌 API（1788，本機測試版）
+
+使用根目錄 `run_api_1788.bat`／`run_api_1788.ps1`，需獨立服務 Python 與指定模型 hash manifest；不依賴 Studio 開著，不會替換現役模型。環境、上傳／Base64 範例、實測延遲與限制見 [API 接入文件](docs/plate-service-api.md)。不要將服務的 Paddle／NumPy 依賴裝入主訓練 `.venv`。
 
 ### Windows 一鍵建置
 
