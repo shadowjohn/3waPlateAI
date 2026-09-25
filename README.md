@@ -31,6 +31,16 @@ M1 提供可重現的 CPU 車牌裁切合成；M2 提供本機 PyTorch CTC 訓�
 
 使用根目錄 `run_api_1788.bat`／`run_api_1788.ps1`，需獨立服務 Python 與指定模型 hash manifest；不依賴 Studio 開著，不會替換現役模型。環境、上傳／Base64 範例、實測延遲與限制見 [API 接入文件](docs/plate-service-api.md)。不要將服務的 Paddle／NumPy 依賴裝入主訓練 `.venv`。
 
+Linux 以對應的 Shell 腳本建立獨立環境並啟動本機微服務（預設 `http://127.0.0.1:1788`）：
+
+```bash
+chmod +x setup_api_1788.sh run_api_1788.sh
+./setup_api_1788.sh --profile cu118   # 可改為 cu128 或 cpu
+./run_api_1788.sh --config /path/to/trusted-model-manifest.json
+```
+
+需要 CPython 3.11 與 [`uv`](https://docs.astral.sh/uv/)。設定檔必須明確列出具授權模型檔與 SHA-256；專案不隨附模型，因此未提供 manifest 與資產時服務無法啟動。展示頁可呼叫此 API，但不應把它直接暴露到網際網路。
+
 ### Windows 一鍵建置
 
 在 PowerShell 執行：

@@ -20,6 +20,16 @@
 
 新機器可執行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup_api_1788.ps1 -Profile cu118`，建立獨立 `.venv-service`（已有目錄時拒絕覆寫）。需要預先安裝 uv。腳本不下載資料或模型，模型與 manifest 另行提供。
 
+Linux 同樣需要 `uv` 與 CPython 3.11，並使用獨立 `.venv-service`：
+
+```bash
+chmod +x setup_api_1788.sh run_api_1788.sh
+./setup_api_1788.sh --profile cu118  # 或 cu128、cpu
+./run_api_1788.sh --config /secure/path/plate-service.json
+```
+
+預設只綁定 `127.0.0.1:1788`，可供同機展示頁呼叫。`PLATEAI_SERVICE_PYTHON` 可指定既有的隔離環境；`--python`、`--device auto|cpu`、`--host` 與 `--port` 對應 PowerShell 啟動參數。若改用非 loopback 位址，仍須依後文設定至少 24 字元的 `PLATEAI_API_TOKEN`。
+
 Manifest 範例在 `configs/service/v3-local.example.json`，保存本次指定模型 hash。將你有權使用的對應資產放入指定目錄，或另存一份本機設定並改絕對路徑；相對路徑以設定檔所在目錄為準。換成其他可信 checkpoint 須重新核對來源與 hash，而不是刪掉檢查。用 `-Config 'D:\private\plate-service.json'` 指定。範例不含模型，直接啟動且無資產時應維持 not-ready。
 
 - `cu118`：GTX 1080；以 `requirements/service-cu118-observed.txt` 約束本機實測版本。

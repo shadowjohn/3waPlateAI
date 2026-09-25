@@ -5,7 +5,6 @@ import re
 
 import numpy as np
 
-SEPARATORS = '-‐‑‒–—﹣−·．.'
 # Text shapes help detect competing OCR rows; they do not establish legal allocation.
 SHAPES = [re.compile(pattern) for pattern in (
     r'([A-Z]{2,3})([0-9]{3,4})', r'([0-9]{3,4})([A-Z]{2,3})',
@@ -15,16 +14,28 @@ SHAPES = [re.compile(pattern) for pattern in (
 
 def normalize_text(raw: str) -> str:
     ascii_width = ''.join(chr(ord(c) - 0xFEE0) if 0xFF01 <= ord(c) <= 0xFF5E else c for c in raw)
-    return ''.join(c for c in ascii_width.upper() if not c.isspace() and c not in SEPARATORS)
+    return ''.join(c for c in ascii_width.upper() if c.isalnum())
 
 
 def shape_parts(text: str):
     return next((match.groups() for pattern in SHAPES if (match := pattern.fullmatch(text))), None)
 
 
+def suggest_b8_by_shape(text: str) -> str:
+    if shape_parts(text):
+        return text
+    candidates = {
+        text[:index] + ('8' if char == 'B' else 'B') + text[index + 1:]
+        for index, char in enumerate(text) if char in 'B8'
+        if shape_parts(text[:index] + ('8' if char == 'B' else 'B') + text[index + 1:])
+    }
+    return candidates.pop() if len(candidates) == 1 else text
+
+
 def warning(code: str) -> dict:
     messages = {
         'format_unknown': '未載入適用的完整法規編碼表，請複核。',
+        'format_suggested_b8': '依字母／數字位置建議 B／8 校正，請複核原始 OCR。',
         'special_plate_unverified': '特殊字頭未驗證，請保留原文複核。',
         'unexpected_character': '包含一般英數以外字元，未自動刪除或猜改。',
         'ocr_charset_limited': '本版英文 OCR 未驗證中文或特殊車牌能力。',
@@ -72,15 +83,20 @@ def read_plate_line(texts, polygons) -> dict:
     if len(plausible) > 1:
         result.update(status='ambiguous', reason='multiple_text_candidates')
         return result
-    # Preserve the probe's tallest-row policy; no GT, regex correction or score voting.
+    # Preserve the probe's tallest-row policy; no GT or score voting.
     _, raw, text = max(rows, key=lambda row: row[0])
     if not text:
         return result
+    suggested = suggest_b8_by_shape(text)
+    was_suggested = suggested != text
+    text = suggested
     parts = shape_parts(text)
     result.update(text=text, raw_text=raw, display_text='-'.join(parts) if parts else None,
                   status='recognized' if parts else 'unverified_format',
                   reason=None if parts else 'format_unknown')
     result['warnings'].append(warning('format_unknown'))
+    if was_suggested:
+        result['warnings'].append(warning('format_suggested_b8'))
     if any('\u4e00' <= c <= '\u9fff' for c in text):
         result['warnings'].append(warning('special_plate_unverified'))
     if not re.fullmatch('[A-Z0-9]+', text):

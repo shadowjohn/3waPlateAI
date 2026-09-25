@@ -12,11 +12,23 @@ def image_bytes(fmt='PNG', size=(12, 8), **kwargs):
     return out.getvalue()
 
 
-def test_normalization_preserves_identity_and_unknown_characters():
+def test_normalization_keeps_alphanumeric_text():
     from plateai_service.text import normalize_text
     assert normalize_text(' ＡｂＣ－００１２ ') == 'ABC0012'
-    assert normalize_text('軍 ＯI-04?') == '軍OI04?'
+    assert normalize_text('軍 ＯI-04?') == '軍OI04'
     assert normalize_text('KUA·0001') == 'KUA0001'
+
+
+@pytest.mark.parametrize(('raw_text', 'expected_text'), [
+    ('WZ:2277', 'WZ2277'),
+    ('X2700|JO5032', 'X2700JO5032'),
+    ('AI:4329]', 'AI4329'),
+    ('|056722', '056722'),
+    ('#^9109', '9109'),
+])
+def test_normalization_removes_ocr_punctuation(raw_text, expected_text):
+    from plateai_service.text import normalize_text
+    assert normalize_text(raw_text) == expected_text
 
 
 def test_largest_line_excludes_slogan_and_joins_same_row():
@@ -48,6 +60,26 @@ def test_empty_and_special_text_remain_honest():
     assert result['text'] == '軍01234'
     assert result['status'] == 'unverified_format'
     assert 'special_plate_unverified' in [w['code'] for w in result['warnings']]
+
+
+@pytest.mark.parametrize(('raw_text', 'expected_text', 'expected_display'), [
+    ('8AB-1234', 'BAB1234', 'BAB-1234'),
+    ('AB-12B4', 'AB1284', 'AB-1284'),
+])
+def test_b8_format_suggestion_repairs_a_single_invalid_position(raw_text, expected_text, expected_display):
+    from plateai_service.text import read_plate_line
+    result = read_plate_line([raw_text], [[[0,0],[100,0],[100,20],[0,20]]])
+    assert result['raw_text'] == raw_text
+    assert result['text'] == expected_text
+    assert result['display_text'] == expected_display
+    assert 'format_suggested_b8' in [warning['code'] for warning in result['warnings']]
+
+
+def test_b8_format_suggestion_keeps_an_already_valid_plate_unchanged():
+    from plateai_service.text import read_plate_line
+    result = read_plate_line(['AB-8123'], [[[0,0],[100,0],[100,20],[0,20]]])
+    assert result['text'] == 'AB8123'
+    assert 'format_suggested_b8' not in [warning['code'] for warning in result['warnings']]
 
 
 def test_base64_accepts_plain_and_matching_data_uri():
