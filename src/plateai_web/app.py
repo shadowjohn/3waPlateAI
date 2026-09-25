@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -429,7 +429,7 @@ class BenchmarkRequest(BaseModel):
     rounds: int = Field(default=1, ge=1, le=20)
     warmup: int = Field(default=2, ge=0, le=20)
     model_kind: Literal["active-v1", "native-preview", "fpga-lpr-mit", "compare"] = "active-v1"
-    sample_limit: int = Field(default=20, ge=1, le=100)
+    sample_limit: int = Field(default=20, ge=1, le=5000)
     mode: Literal["both", "crop", "scene"] = "both"
 
 
@@ -455,6 +455,27 @@ def start_benchmark(req: BenchmarkRequest):
 def start_release_build():
     task_id = task_manager.run_in_background("一鍵 Release 打包 (Port 1788)", build_release_task)
     return {"status": "started", "task_id": task_id}
+
+
+@app.get("/api/benchmark/reports/{report_id}/rows")
+def benchmark_report_rows(report_id: str, group: str = "active-v1-crop",
+                          offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=100),
+                          errors_only: bool = False):
+    from .benchmark_reports import read_rows
+    try:
+        return read_rows(ROOT, report_id, group, offset, limit, errors_only)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail="找不到 Benchmark 報告")
+
+
+@app.get("/api/benchmark/reports/{report_id}/images/{filename}")
+def benchmark_report_image(report_id: str, filename: str):
+    from .benchmark_reports import image_path
+    try:
+        path = image_path(ROOT, report_id, filename)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail="找不到 Benchmark 縮圖")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.get("/api/tasks/{task_id}")

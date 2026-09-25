@@ -77,7 +77,7 @@ def test_inference_page_separates_candidate_and_active_lists(web_client):
 @pytest.mark.parametrize("endpoint,payload", [
     ("/api/benchmark/run", {"rounds": 0}),
     ("/api/benchmark/run", {"warmup": -1}),
-    ("/api/benchmark/run", {"sample_limit": 101}),
+    ("/api/benchmark/run", {"sample_limit": 5001}),
     ("/api/benchmark/run", {"model_kind": "../custom"}),
     ("/api/model/activate", {"task_id": "../escape"}),
     ("/api/dataset/generate", {"count": 0}),

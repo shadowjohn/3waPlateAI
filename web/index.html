@@ -441,16 +441,16 @@
             </div>
             <input type="file" id="file-input" style="display: none;" accept="image/*">
             <div class="form-check form-switch mt-2 small">
-                <input class="form-check-input" type="checkbox" role="switch" id="toggle-candidate-preview">
+                <input class="form-check-input" type="checkbox" role="switch" id="toggle-candidate-preview" checked>
                 <label class="form-check-label" for="toggle-candidate-preview">
-                    本機 A/B 候選定位預覽（現役模型不會被替換）
+                    本機 A/B 辨識對照（預設使用 MIT；現役模型不會被替換）
                 </label>
             </div>
             <div class="d-flex align-items-center gap-2 mt-2 small">
                 <label for="candidate-preview-kind" class="text-muted">候選辨識器：</label>
-                <select id="candidate-preview-kind" class="form-select form-select-sm" style="max-width: 330px;" disabled>
+                <select id="candidate-preview-kind" class="form-select form-select-sm" style="max-width: 330px;">
                     <option value="native-preview">原本的本機候選模型</option>
-                    <option value="fpga-lpr-mit">作者 CPM + LPRNet（MIT，OCR 實驗）</option>
+                    <option value="fpga-lpr-mit" selected>作者 CPM + LPRNet（MIT，OCR 實驗）</option>
                 </select>
                 <span class="text-muted">外部 OCR 仍仰賴本機 Detector 定位，尚無獨立實拍盲測。</span>
             </div>
@@ -576,7 +576,7 @@
                     </div>
                     <div class="col-md-4">
                         <label for="bench-samples" class="form-label">樣本上限（依檔名固定排序）</label>
-                        <input type="number" class="form-control" id="bench-samples" value="20" min="1" max="100">
+                        <input type="number" class="form-control" id="bench-samples" value="20" min="1" max="5000">
                     </div>
                     <div>
                         <button class="btn btn-primary" id="btn-run-benchmark">開始測試</button>
@@ -638,6 +638,25 @@
                         </div>
                         <div class="markdown-box" id="benchmark-markdown"></div>
                     </div>
+                </div>
+                <div class="panel" id="benchmark-details" style="display: none;">
+                    <div class="panel-title">逐張圖字對照</div>
+                    <p class="small text-muted">列出每張第 1 個計分回合；暖機與重複回合不重複列圖。綠框＝GT，紫框 P1/P2＝模型預測；GT Crop 只有 GT 框。文字與 GT 不同以紅字顯示，定位失敗另列原因。BBox 為原圖像素座標 [x1,y1,x2,y2]，顯示至小數 1 位。</p>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <label for="bench-detail-group">模型／模式</label>
+                        <select id="bench-detail-group" class="form-select form-select-sm" style="max-width: 330px;"></select>
+                        <label><input id="bench-detail-errors" type="checkbox"> 只看錯誤</label>
+                        <button id="bench-detail-prev" class="btn btn-sm btn-outline-dark" type="button">上一頁</button>
+                        <button id="bench-detail-next" class="btn btn-sm btn-outline-dark" type="button">下一頁</button>
+                        <span id="bench-detail-page" class="small text-muted" aria-live="polite"></span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle" id="table-benchmark-details">
+                            <thead><tr><th>#</th><th>影像＋BBox</th><th>實際 OCR 裁切</th><th>GT</th><th>辨識文字</th><th>BBox [x1,y1,x2,y2]</th><th>結果／耗時</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <p class="small text-muted">縮圖按需載入，每頁最多 100 筆；本機報告保存在 runs/web-benchmarks，不納入 Git 或發行包。縮圖與磁碟讀取不計入推論耗時。</p>
                 </div>
             </div>
         </section>
@@ -727,9 +746,16 @@
 </div>
 
 <!-- Local Offline JS Assets -->
+<div class="modal fade" id="benchmark-image-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h6 class="modal-title" id="benchmark-image-title">Benchmark 圖片</h6><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body text-center"><img id="benchmark-image-zoom" class="img-fluid" alt="Benchmark 影像與框" style="max-height: 70vh;"></div>
+  </div></div>
+</div>
 <script src="/js/jquery.min.js"></script>
 <script src="/js/bootstrap.bundle.min.js"></script>
 <script src="/js/echarts.min.js"></script>
+<script src="/js/benchmark-details.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>

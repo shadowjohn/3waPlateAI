@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
@@ -18,11 +19,47 @@ from plateai_reader.rectifier import rectify_plate
 from plateai_reader.runtime import PlateReader, _default_schema_path
 from plateai_shared.bundle import validate_model_bundle
 from .paths import workspace_root
+from .benchmark_reports import ReportWriter
 
 
 ROOT = workspace_root()
 MODELS = ("active-v1", "native-preview", "fpga-lpr-mit", "compare")
 DATASETS = ("ezcon", "user")
+
+
+@dataclass
+class Sample:
+    path: Path
+    sha256: str
+    corners: np.ndarray
+    expected: str
+    name: str
+
+    def __iter__(self):
+        # Read and verify one image outside the timed inference section.
+        data = self.path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != self.sha256:
+            raise ValueError(f"評測影像已變更：{self.name}")
+        bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise ValueError(f"影像無法讀取：{self.name}")
+        return iter((cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), self.corners, self.expected))
+
+
+@dataclass
+class Prediction:
+    text: str
+    matched: bool
+    score: float | None = None
+    crop: np.ndarray | None = None
+    predicted_boxes: list = field(default_factory=list)
+    reason: str | None = None
+    iou: float | None = None
+    scene_outputs: list = field(default_factory=list)
+
+
+def _score(text, logp):
+    return math.exp(min(0.0, logp) / max(1, len(text))) if math.isfinite(logp) else 0.0
 
 
 def load_samples(root: Path, dataset: str, limit: int):
@@ -57,8 +94,9 @@ def load_samples(root: Path, dataset: str, limit: int):
         expected = gt["canonical"].strip().upper()
         if not expected:
             raise ValueError(f"GT 文字為空：{path.name}")
-        samples.append((cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), corners, expected))
-        identities.append({"path": record["image"]["path"], "sha256": hashlib.sha256(data).hexdigest(),
+        digest = hashlib.sha256(data).hexdigest()
+        samples.append(Sample(path, digest, corners, expected, record["image"]["path"]))
+        identities.append({"path": record["image"]["path"], "sha256": digest,
                            "canonical": expected, "corners": corners.tolist()})
     if not samples:
         raise ValueError("評測集沒有樣本，尚未執行評測")
@@ -89,24 +127,34 @@ class ModelAdapter:
             if self.external:
                 box = [*corners.min(axis=0), *corners.max(axis=0)]
                 try:
-                    return self.ocr.recognize(crop_box(image, box, 0.06)).normalized_text, True
-                except FpgaLprError:
-                    return "", False
+                    read = self.ocr.recognize(crop_box(image, box, 0.06))
+                    return Prediction(read.normalized_text, True, crop=read.aligned_rgb)
+                except FpgaLprError as exc:
+                    return Prediction("", False, reason=exc.reason)
             try:
                 crop = rectify_plate(image, corners).image_rgb
-            except ValueError:
-                return "", False
-            return self.native._eval_single_crop(crop)[0], True
+            except ValueError as exc:
+                return Prediction("", False, reason=str(exc))
+            text, _, _, logp, _ = self.native._eval_single_crop(crop)
+            return Prediction(text, True, score=_score(text, logp), crop=crop)
         if self.scene is None:
             raise ValueError("此模型缺少 Detector，請選擇 GT Crop 模式")
         result = self.scene.read(image)
-        candidates = [(calculate_polygon_iou(p.detection.corners_xy, corners),
-                       p.read.normalized_text if self.external else p.decoded.canonical) for p in result.plates]
-        best = max(candidates, key=lambda item: item[0]) if candidates else (0, "")
-        return (best[1], True) if best[0] >= 0.5 else ("", False)
+        boxes = [p.detection.bbox_xyxy.tolist() for p in (*result.plates, *result.rejections)]
+        outputs = [p.read.normalized_text if self.external else p.decoded.canonical for p in result.plates]
+        if not result.plates:
+            reasons = [p.reason for p in result.rejections]
+            return Prediction("", False, predicted_boxes=boxes, reason="; ".join(reasons) or "no_detection")
+        iou, best = max(((calculate_polygon_iou(p.detection.corners_xy, corners), p) for p in result.plates), key=lambda item: item[0])
+        text = best.read.normalized_text if self.external else best.decoded.canonical
+        return Prediction(text, iou >= .5,
+                          score=None if self.external else _score(text, best.decoded.log_probability),
+                          crop=best.read.aligned_rgb if self.external else best.crop_rgb,
+                          predicted_boxes=boxes, reason=None if iou >= .5 else "no_gt_match", iou=float(iou),
+                          scene_outputs=outputs)
 
 
-def measure(adapter, samples, mode, rounds, warmup, progress=None):
+def measure(adapter, samples, mode, rounds, warmup, progress=None, on_detail=None):
     # Warmup is per model/mode, excluded from timing and accuracy.
     for i in range(warmup):
         image, corners, _ = samples[i % len(samples)]
@@ -114,14 +162,21 @@ def measure(adapter, samples, mode, rounds, warmup, progress=None):
     latencies, exact, errors, total_chars, located = [], 0, 0, 0, 0
     total = len(samples) * rounds
     for repeat in range(rounds):
-        for index, (image, corners, expected) in enumerate(samples):
+        for index, sample in enumerate(samples):
+            image, corners, expected = sample
             started = time.perf_counter()
-            predicted, matched = adapter.predict(image, corners, mode)
-            latencies.append((time.perf_counter() - started) * 1000)
+            prediction = adapter.predict(image, corners, mode)
+            elapsed = (time.perf_counter() - started) * 1000
+            if not isinstance(prediction, Prediction):
+                prediction = Prediction(*prediction)
+            predicted, matched = prediction.text, prediction.matched
+            latencies.append(elapsed)
             exact += int(matched and predicted == expected)
             located += int(matched)
-            errors += levenshtein_distance(predicted, expected)
+            errors += levenshtein_distance(predicted if matched else "", expected)
             total_chars += len(expected)
+            if on_detail and repeat == 0:
+                on_detail(index, sample, image, corners, expected, prediction, elapsed)
             if progress:
                 progress((repeat * len(samples) + index + 1) / total)
     return {"success": f"{exact}/{total}", "accuracy": f"{100*exact/total:.1f}% (CER {100*errors/total_chars:.1f}%)",
@@ -136,7 +191,7 @@ def run_benchmark_task(task_id, tm, target_dataset="ezcon", rounds=1, warmup=2,
     try:
         if model_kind not in MODELS or target_dataset not in DATASETS or mode not in {"both", "crop", "scene"}:
             raise ValueError("無效的模型、資料集或評測模式")
-        if not (1 <= rounds <= 20 and 0 <= warmup <= 20 and 1 <= sample_limit <= 100):
+        if not (1 <= rounds <= 20 and 0 <= warmup <= 20 and 1 <= sample_limit <= 5000):
             raise ValueError("評測參數超出範圍")
         tm.update_progress(task_id, 1, "核對固定評測集與模型...")
         samples, fingerprint = load_samples(ROOT, target_dataset, sample_limit)
@@ -146,23 +201,27 @@ def run_benchmark_task(task_id, tm, target_dataset="ezcon", rounds=1, warmup=2,
         tm.append_log(task_id, f"每模型／模式 {rounds} 回合；暖機 {warmup} 次。時間僅含伺服器辨識，不含載入、磁碟及 HTTP。")
         tm.append_log(task_id, "GT Crop：原生使用 GT 透視校正；MIT 使用 GT 外接框 + 6% margin，再由 CPM 校正。")
         results = []
+        report = ReportWriter(ROOT)
         for kind in kinds:
             adapter = ModelAdapter(ROOT, kind)
             for selected_mode in modes:
                 slot = len(results)
+                group = f"{kind}-{selected_mode}"
                 tm.append_log(task_id, f"開始 {kind} / {selected_mode}")
                 result = measure(adapter, samples, selected_mode, rounds, warmup,
-                                 lambda fraction: tm.update_progress(task_id, 5 + int(90*(slot+fraction)/(len(kinds)*len(modes)))))
+                                 lambda fraction: tm.update_progress(task_id, 5 + int(90*(slot+fraction)/(len(kinds)*len(modes)))),
+                                 on_detail=lambda *args: report.add(group, selected_mode, *args))
                 result.update(case=f"{kind} / {'GT Crop' if selected_mode == 'crop' else 'End-to-End'}",
                               api="本機推論（非 HTTP）", query=target_dataset, model_id=adapter.model_id,
-                              model_manifests=adapter.identity, dataset_sha256=fingerprint)
+                              model_manifests=adapter.identity, dataset_sha256=fingerprint, group=group)
                 results.append(result)
                 tm.append_log(task_id, f"{result['case']}：{result['success']}，avg {result['avg_ms']} ms")
         columns = ["case", "query", "success", "accuracy", "avg_ms", "p50_ms", "p95_ms", "max_ms", "qps"]
         markdown = f"資料集 SHA256: {fingerprint}\n樣本: {len(samples)}；rounds={rounds}；warmup={warmup}\n獨立準確率：尚未驗收\n\n"
         markdown += "| " + " | ".join(columns) + " |\n| " + " | ".join(["---"] * len(columns)) + " |\n"
         markdown += "\n".join("| " + " | ".join(str(r[c]) for c in columns) + " |" for r in results)
-        tm.complete_task(task_id, result={"status": "success", "experimental_diagnostic": True,
+        report.finish({"results": results, "dataset_sha256": fingerprint, "detail_round": 1})
+        tm.complete_task(task_id, result={"status": "success", "experimental_diagnostic": True, "report_id": report.report_id,
                          "m4_5_status": None, "independent_accuracy": "pending", "results": results,
                          "dataset_sha256": fingerprint, "markdown": markdown}, message="所選模型與模式評測完成")
     except Exception as exc:

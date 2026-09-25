@@ -897,17 +897,19 @@ $(function () {
             dataset: $("#bench-dataset").val(), mode: $("#bench-mode").val() };
         if (!Number.isInteger(payload.rounds) || payload.rounds < 1 || payload.rounds > 20 ||
             !Number.isInteger(payload.warmup) || payload.warmup < 0 || payload.warmup > 20 ||
-            !Number.isInteger(payload.sample_limit) || payload.sample_limit < 1 || payload.sample_limit > 100) {
-            showToast("參數無效", "回合 1–20、暖機 0–20、樣本 1–100", false); return;
+            !Number.isInteger(payload.sample_limit) || payload.sample_limit < 1 || payload.sample_limit > 5000) {
+            showToast("參數無效", "回合 1–20、暖機 0–20、樣本 1–5000", false); return;
         }
         $("#benchmark-result-panel").hide();
         benchmarkRecords = [];
+        window.renderBenchmarkDetails(null, []);
         runTask("/api/benchmark/run", payload, "#term-benchmark", "#prog-benchmark", "#status-box-benchmark", "#btn-run-benchmark", function (res) {
             if (res && res.results) {
                 renderBenchmarkResults(res.results, res.markdown);
                 benchmarkRecords = res.results;
                 $("#benchmark-result-panel").stop(true, true).show();
                 initBenchmarkChart(benchmarkRecords);
+                window.renderBenchmarkDetails(res.report_id, res.results);
             }
         });
     });
