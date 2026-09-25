@@ -193,10 +193,15 @@ def launch_training_worker(root: Path, task_id: str) -> None:
 
     root = Path(root).resolve()
     store = TrainingStore(root / "runs" / ".web-training")
+    task = store.get(task_id)
+    executable = sys.executable
+    if task and task['request'].get('kind') == 'pose':
+        from .pose_training import python_path
+        executable = str(python_path(root))
     try:
         _spawn_detached(
             [
-                sys.executable,
+                executable,
                 "-u",
                 "-m",
                 "plateai_web.training_worker",

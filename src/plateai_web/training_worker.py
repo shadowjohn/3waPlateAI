@@ -116,6 +116,10 @@ def run_worker(root: Path, task_id: str, *, pipeline: Callable[..., dict] | None
                 now = time.monotonic()
                 with cache_lock:
                     phase, progress, message = _progress_for(event, last_progress)
+                    if task['request'].get('kind') == 'pose':
+                        message = {'preparing': 'Pose 圖片、hash 與分組校驗中',
+                                   'validating': 'Pose 36 張 holdout 評估中（不挑選模型）',
+                                   'exporting': '打包 Pose .pt 與 manifest；不自動啟用'}.get(phase, message)
                     if event.kind == "batch":
                         result_cache["current_batch"] = event.batch
                         result_cache["total_batches"] = event.total_batches
@@ -127,7 +131,7 @@ def run_worker(root: Path, task_id: str, *, pipeline: Callable[..., dict] | None
                                 "epoch": event.epoch,
                                 "train_loss": event.train_loss,
                                 "val_loss": event.val_loss,
-                                "val_acc": round(float(event.val_acc or 0.0) * 100, 1),
+                                "val_acc": round(float(event.val_acc) * 100, 1) if event.val_acc is not None else None,
                             }
                             if not history or history[-1].get("epoch") != event.epoch:
                                 history.append(record)
@@ -159,9 +163,12 @@ def run_worker(root: Path, task_id: str, *, pipeline: Callable[..., dict] | None
 
             try:
                 if pipeline is None:
-                    from .trainer import run_training_pipeline
-
-                    selected_pipeline = run_training_pipeline
+                    if task['request'].get('kind') == 'pose':
+                        from .pose_training import run_pose_pipeline
+                        selected_pipeline = run_pose_pipeline
+                    else:
+                        from .trainer import run_training_pipeline
+                        selected_pipeline = run_training_pipeline
                 else:
                     selected_pipeline = pipeline
                 result = selected_pipeline(
@@ -179,7 +186,7 @@ def run_worker(root: Path, task_id: str, *, pipeline: Callable[..., dict] | None
                 if not store.finish(
                     task_id,
                     "completed",
-                    message="訓練與匯出完成，尚未啟用",
+                    message="Pose 模型包已完成，尚未啟用" if task['request'].get('kind') == 'pose' else "訓練與匯出完成，尚未啟用",
                     result=completed_result,
                 ) and store.cancel_requested(task_id):
                     store.finish(

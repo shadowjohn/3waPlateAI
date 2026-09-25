@@ -29,6 +29,7 @@ from .tasks import TaskStatus, task_manager
 from .trainer import find_available_datasets, validate_training_request
 from .training_process import launch_training_worker, reconcile_training_tasks
 from .training_store import TrainingStore
+from . import pose_training
 
 ROOT = workspace_root()
 WEB_DIR = web_root(ROOT)
@@ -326,9 +327,48 @@ def get_train_datasets():
     return {"datasets": find_available_datasets(ROOT)}
 
 
+@app.get('/api/train/pose/preflight')
+def pose_preflight():
+    return pose_training.preflight(ROOT)
+
+
+@app.get('/api/train/pose/annotations')
+def pose_annotations():
+    path = pose_training.resource_path(ROOT, pose_training.ANNOTATIONS)
+    try:
+        pose_training.load_annotations(path)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(404, '純標註包不存在或格式不符') from exc
+    return FileResponse(path, media_type='application/json', filename='pose-clean119-v1.json')
+
+
+@app.get('/api/train/pose/guide')
+def pose_guide():
+    path = pose_training.resource_path(ROOT, 'docs/pose-training.md')
+    if not path.is_file():
+        raise HTTPException(404, 'Pose 訓練說明尚未安裝')
+    return FileResponse(path, media_type='text/plain; charset=utf-8')
+
+
+@app.get('/api/train/pose/artifacts/{task_id}/package')
+def pose_artifact(task_id: str, store: TrainingStore = Depends(get_training_store)):
+    try:
+        task = store.get(task_id)
+        if (not task or task['request'].get('kind') != 'pose'
+                or task['status'] not in ('completed', 'cancelled')):
+            raise ValueError('unpublished')
+        path = pose_training.safe_file(ROOT, f'runs/pose-{task_id}/artifact/pose-detector.zip')
+        if pose_training.sha256(path) != task['result'].get('package_sha256'):
+            raise ValueError('artifact changed')
+    except (OSError, ValueError, KeyError) as exc:
+        raise HTTPException(404, '已完成的 Pose 模型包不存在或 hash 不符') from exc
+    return FileResponse(path, media_type='application/zip', filename=f'pose-{task_id}.zip')
+
+
 @app.get("/api/train/active")
 def get_active_train(store: TrainingStore = Depends(get_training_store)):
     try:
+        reconcile_training_tasks(store)
         active = store.active()
         task = active[0] if active else store.latest()
     except (OSError, sqlite3.Error) as exc:
@@ -363,6 +403,8 @@ def stop_training(store: TrainingStore = Depends(get_training_store)):
 
 
 class TrainRequest(BaseModel):
+    kind: Literal['ctc', 'pose'] = 'ctc'
+    acknowledge_unreviewed_license: bool = False
     epochs: int = 5
     run_name: str | None = None
     train_dataset: str | None = None
@@ -401,11 +443,15 @@ def start_training(req: TrainRequest, store: TrainingStore = Depends(get_trainin
 
     request = req.model_dump(exclude_none=True)
     try:
-        validate_training_request(ROOT, task_id, request)
+        if req.kind == 'pose':
+            pose_training.validate_request(ROOT, request)
+        else:
+            validate_training_request(ROOT, task_id, request)
     except (FileExistsError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
-        store.create(task_id, f"模型訓練 ({req.epochs} Epochs)", request)
+        prefix = 'YOLO Pose' if req.kind == 'pose' else '模型訓練'
+        store.create(task_id, f"{prefix} ({req.epochs} Epochs)", request)
     except (OSError, sqlite3.Error) as exc:
         raise _storage_unavailable(exc) from exc
     try:
@@ -484,6 +530,7 @@ def get_task_info(task_id: str, store: TrainingStore = Depends(get_training_stor
     if task:
         return _memory_task_document(task)
     try:
+        reconcile_training_tasks(store)
         try:
             training_task = store.get(task_id)
         except ValueError:

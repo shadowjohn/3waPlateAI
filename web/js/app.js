@@ -657,6 +657,12 @@ $(function () {
         const history = Array.isArray(result.history) ? result.history : [];
 
         setTrainingStatus(task);
+        if (window.PoseTraining) window.PoseTraining.render(task);
+        if (task.request && task.request.kind === "pose") {
+            $("#btn-stop-train").prop("disabled", true);
+            $("#status-box-train").empty().hide();
+            return;
+        }
         $progress.css("width", `${task.progress || 0}%`).attr("aria-valuenow", task.progress || 0).text(`${task.progress || 0}%`);
         if (Array.isArray(task.logs)) {
             $body.empty();
@@ -738,6 +744,7 @@ $(function () {
             } else {
                 $("#train-chart-status").text("找不到先前任務，請確認目前訓練狀態。");
                 $("#btn-start-train").prop("disabled", false).removeClass("disabled");
+                if (window.PoseTraining) window.PoseTraining.setBusy(false);
             }
         });
     }
@@ -769,6 +776,7 @@ $(function () {
                     .removeClass("bg-success-subtle text-success bg-success text-white")
                     .addClass("bg-warning-subtle text-warning")
                     .text(`連線中斷，${Math.ceil(trainRetryDelay / 1000)} 秒後重試...`);
+                if (window.PoseTraining) window.PoseTraining.connectionError("連線中斷，正在重試；背景任務可能仍在執行。");
                 scheduleTrainPoll(trainRetryDelay);
                 trainRetryDelay = Math.min(trainRetryDelay * 2, 10000);
             })
@@ -788,6 +796,7 @@ $(function () {
             if (!res.task) {
                 $("#btn-start-train").prop("disabled", false).removeClass("disabled");
                 $("#btn-stop-train").prop("disabled", true);
+                if (window.PoseTraining) window.PoseTraining.setBusy(false);
                 return;
             }
             renderTrainingTask(res.task, false);
@@ -796,10 +805,14 @@ $(function () {
     }
 
     // 4. Train Model
+    window.addEventListener("pose-training-started", event => startTrainingPolling(event.detail, true));
+    window.addEventListener("pose-training-refresh", checkActiveTraining);
+    window.addEventListener("pose-training-pending", () => $("#btn-start-train").prop("disabled", true));
     $("#btn-start-train").on("click", function () {
         const epochs = parseInt($("#train-epochs").val(), 10) || 5;
         const trainDataset = $("#train-dataset-select").val() || null;
         $("#btn-start-train").prop("disabled", true).addClass("disabled");
+        if (window.PoseTraining) window.PoseTraining.setBusy(true);
         $("#train-stat-epoch").text(`0 / ${epochs}`);
         $("#train-stat-loss, #train-stat-vloss, #train-stat-acc").text("尚未驗證");
         $("#train-chart-status").removeClass("bg-success text-white").addClass("bg-warning-subtle text-warning").text("正在建立背景訓練任務...");
@@ -815,6 +828,7 @@ $(function () {
             startTrainingPolling(res.task_id, true);
         }).fail(function (xhr) {
             $("#btn-start-train").prop("disabled", false).removeClass("disabled");
+            if (window.PoseTraining) window.PoseTraining.setBusy(false);
             const message = (xhr.responseJSON && xhr.responseJSON.detail) || "無法建立背景訓練任務";
             $("#status-box-train").empty().show().append($("<div>").addClass("alert alert-danger py-2 px-3 mb-0").text(message));
             if (xhr.status === 409) checkActiveTraining();

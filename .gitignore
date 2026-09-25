@@ -2,6 +2,7 @@
 .venv-verify/
 .venv-font-build/
 .venv-service/
+.venv-pose/
 __pycache__/
 *.py[cod]
 .pytest_cache/

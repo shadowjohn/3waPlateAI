@@ -67,6 +67,8 @@ where = ["src"]
 "share/3wa-plate-ai/web/css" = ["web/css/*.css"]
 "share/3wa-plate-ai/web/js" = ["web/js/*.js"]
 "share/3wa-plate-ai/web/assets" = ["web/assets/*.jpg", "web/assets/*.png"]
+"share/3wa-plate-ai/annotations" = ["annotations/*.json", "annotations/README.md"]
+"share/3wa-plate-ai/docs" = ["docs/pose-training.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

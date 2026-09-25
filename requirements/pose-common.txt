@@ -1,0 +1,10 @@
+# Isolated Pose training only. Do not install the main project's training extra here.
+torch==2.7.1
+torchvision==0.22.1
+ultralytics==8.3.203
+numpy==1.26.4
+opencv-python==4.10.0.84
+pillow==12.3.0
+PyYAML==6.0.2
+jsonschema>=4.26.0,<5
+pyarrow>=19,<24

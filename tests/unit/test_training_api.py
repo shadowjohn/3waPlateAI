@@ -95,3 +95,17 @@ def test_invalid_training_request_is_not_spawned(training_client) -> None:
     response = client.post("/api/train/start", json={"epochs": 1, "run_name": "../escape"})
     assert response.status_code == 422
     assert store.latest() is None
+
+
+@pytest.mark.parametrize('endpoint', ['/api/train/active', '/api/tasks/0123456789ab'])
+@pytest.mark.parametrize('state,expected', [('dead', 'failed'), ('unknown', 'running')])
+def test_read_reconciles_crashed_worker_but_preserves_unknown(training_client, monkeypatch, endpoint, state, expected):
+    client, store = training_client
+    from plateai_web import training_process
+    task_id = '0123456789ab'
+    store.create(task_id, 'Pose', {'kind': 'pose', 'epochs': 10})
+    store.claim(task_id, 999, 'test-token')
+    monkeypatch.setattr(training_process, 'process_state', lambda pid, token: state)
+    response = client.get(endpoint)
+    assert response.status_code == 200
+    assert store.get(task_id)['status'] == expected
